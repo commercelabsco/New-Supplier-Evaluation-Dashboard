@@ -1,0 +1,1144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Supplier Evaluation Dashboard</title>
+<style>
+  :root{
+    --ink:#1C2B39;
+    --ink-soft:#55606B;
+    --bg:#F3F5F7;
+    --panel:#FFFFFF;
+    --border:#DFE3E7;
+    --accent:#2F6690;
+    --accent-soft:#EAF1F6;
+    --gold:#96700C;
+    --gold-soft:#FBF1DD;
+    --green:#3F7A4E;
+    --green-soft:#EAF4EC;
+    --red:#A83232;
+    --red-soft:#FBEAEA;
+    --mono: "SFMono-Regular", Consolas, Menlo, monospace;
+    --serif: Georgia, "Iowan Old Style", "Times New Roman", serif;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:var(--sans);background:var(--bg);color:var(--ink);}
+  .shell{display:flex;min-height:100vh;}
+  nav.side{
+    width:220px;flex-shrink:0;background:var(--ink);color:#DCE4EA;
+    padding:28px 0;position:sticky;top:0;height:100vh;
+  }
+  nav.side .brand{
+    font-family:var(--serif);font-size:19px;line-height:1.3;
+    padding:0 22px 24px;border-bottom:1px solid rgba(255,255,255,.12);margin-bottom:18px;
+  }
+  nav.side .brand small{display:block;font-family:var(--sans);font-size:11px;color:#8FA2AF;margin-top:4px;}
+  nav.side button{
+    display:block;width:100%;text-align:left;background:none;border:none;color:#B9C6CE;
+    font-size:14px;padding:11px 22px;cursor:pointer;border-left:3px solid transparent;
+  }
+  nav.side button:hover{color:#fff;background:rgba(255,255,255,.05);}
+  nav.side button.active{color:#fff;background:rgba(255,255,255,.08);border-left-color:var(--accent);font-weight:600;}
+  main{flex:1;padding:36px 44px;max-width:1100px;}
+  h1{font-family:var(--serif);font-size:26px;margin:0 0 6px;}
+  .sub{color:var(--ink-soft);font-size:14px;margin:0 0 28px;max-width:640px;line-height:1.5;}
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:24px 26px;margin-bottom:22px;}
+  .panel h2{font-size:15px;text-transform:none;margin:0 0 4px;font-weight:700;}
+  .panel .weight-tag{font-family:var(--mono);font-size:12px;color:var(--ink-soft);margin-bottom:14px;}
+  label.field{display:block;font-size:13px;font-weight:600;margin:14px 0 5px;}
+  input[type=text],input[type=number],input[type=date],select,textarea{
+    width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;
+    font-size:14px;font-family:var(--sans);background:#fff;color:var(--ink);
+  }
+  select{cursor:pointer;}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 20px;}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 16px;}
+  .hint{font-size:12px;color:var(--ink-soft);margin-top:4px;}
+  .btn{
+    background:var(--accent);color:#fff;border:none;padding:10px 20px;border-radius:5px;
+    font-size:14px;font-weight:600;cursor:pointer;
+  }
+  .btn:hover{background:#25516F;}
+  .btn.secondary{background:none;border:1px solid var(--border);color:var(--ink);}
+  .btn.secondary:hover{background:var(--bg);}
+  .btn.danger{background:none;color:var(--red);border:1px solid var(--red-soft);}
+  .btn.danger:hover{background:var(--red-soft);}
+  .btn:disabled{opacity:.45;cursor:not-allowed;}
+  .actions-row{display:flex;gap:10px;margin-top:22px;}
+  table{width:100%;border-collapse:collapse;font-size:13.5px;}
+  th{text-align:left;font-size:11.5px;color:var(--ink-soft);font-weight:600;
+     border-bottom:1px solid var(--border);padding:8px 10px;white-space:nowrap;}
+  td{padding:9px 10px;border-bottom:1px solid var(--border);vertical-align:top;}
+  tr:hover td{background:#FAFBFC;}
+  .num{font-family:var(--mono);}
+  .badge{display:inline-block;padding:2px 9px;border-radius:20px;font-size:12px;font-weight:600;}
+  .badge.excellent,.badge.good{background:var(--green-soft);color:var(--green);}
+  .badge.acceptable{background:var(--gold-soft);color:var(--gold);}
+  .badge.risk,.badge.poor{background:var(--red-soft);color:var(--red);}
+  .badge.gate{background:var(--red);color:#fff;}
+  .flag-partial{color:var(--gold);font-weight:600;}
+  .flag-full{color:var(--green-soft);}
+  .empty{color:var(--ink-soft);font-size:14px;padding:20px 0;}
+  .section-title{font-family:var(--serif);font-size:18px;margin:30px 0 4px;}
+  .compare-grid{display:grid;grid-template-columns:180px repeat(auto-fit,minmax(180px,1fr));gap:0;}
+  .compare-grid .rowlabel{font-size:12px;color:var(--ink-soft);padding:9px 10px;border-bottom:1px solid var(--border);font-weight:600;}
+  .compare-grid .cell{font-size:13.5px;padding:9px 10px;border-bottom:1px solid var(--border);}
+  .compare-grid .colhead{font-family:var(--serif);font-size:15px;padding:9px 10px;border-bottom:2px solid var(--ink);}
+  .checkbox-row{display:flex;align-items:center;gap:8px;font-size:13px;margin:8px 0;}
+  .savebar{position:sticky;bottom:0;background:var(--panel);border-top:1px solid var(--border);
+           padding:14px 26px;margin:0 -26px -24px;border-radius:0 0 6px 6px;}
+  .toast{position:fixed;bottom:24px;right:24px;background:var(--ink);color:#fff;padding:12px 18px;
+         border-radius:6px;font-size:14px;box-shadow:0 6px 20px rgba(0,0,0,.2);opacity:0;
+         transition:opacity .25s;pointer-events:none;}
+  .toast.show{opacity:1;}
+  .completeness{font-size:12px;color:var(--ink-soft);margin-top:2px;}
+</style>
+</head>
+<body>
+<div class="shell">
+  <nav class="side">
+    <div class="brand">Supplier Evaluation<br>Dashboard<small>Procurement 70% + QC 30%</small></div>
+    <button data-view="new" class="active">+ New Evaluation</button>
+    <button data-view="ongoing">Ongoing</button>
+    <button data-view="history">History</button>
+    <button data-view="byproduct">By Product</button>
+  </nav>
+  <main id="main"></main>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============================================================
+   SCORING MODEL
+   ============================================================ */
+const QC_WEIGHTS = { testingCapacity:2, gmpMatch:6, responsivenessResolution:6, productQuality:5, coaTurnaround:5, labelReviewer:6 };
+const QC_TOTAL = 30;
+
+const PROC_BASE = { productCost:20, paymentTerms:20, moq:20, leadTime:10 }; // sums to 70 exactly, no rescale needed when all 4 answered
+const PROC_RESCALE = 70 / Object.values(PROC_BASE).reduce((a,b)=>a+b,0); // self-correcting: PROC_BASE sums to 70 now, so this is 1
+const PROC_WEIGHTS = Object.fromEntries(Object.entries(PROC_BASE).map(([k,v])=>[k, v*PROC_RESCALE]));
+const PROC_TOTAL = 70;
+
+const OPTS = {
+  fiveBandDesc: (labels) => labels.map((l,i)=>({label:l, score:5-i})), // first label = best = 5
+
+  testingCapacity: [
+    "Full in-house testing (heavy metals, micro, assay) + ISO 17025 accredited, AND stability + certification-specific testing offered",
+    "In-house testing for most panels; third-party (ISO 17025 accredited) covers the rest",
+    "Fully third-party tested, ISO 17025 accredited",
+    "Third-party tested, accreditation unclear or not ISO 17025",
+    "No consistent testing arrangement in place"
+  ],
+  gmpMatch: [
+    "Current GMP cert, scope matches exactly, no open FDA 483s",
+    "Current GMP cert, scope broadly covers product type, no open FDA 483s",
+    "Current GMP cert, minor scope gap, no open FDA 483s",
+    "GMP cert expiring \u226490 days, and/or scope mismatch, and/or resolved 483 in past 12 months",
+    "No valid GMP certificate, or an open/unresolved FDA 483 \u2014 HARD GATE"
+  ],
+  responsivenessResolution: ["10 business days or fewer","11\u201320 business days","21\u201330 business days","31\u201345 business days","More than 45 business days / often unresolved"],
+  productQuality: [
+    "Zero quality issues in the period",
+    "One minor (advisory-level) finding, resolved",
+    "One moderate finding, or two+ minor findings",
+    "One major finding, or recurring moderate findings",
+    "Multiple major findings, unresolved/recurring major finding, or a recall"
+  ],
+  coaTurnaround: ["5 business days or fewer (grace period)","6\u201310 business days","11\u201315 business days","16\u201320 business days","More than 20 business days"],
+  labelReviewer: [
+    "Dedicated in-house regulatory/label reviewer signs off on every label prior to production; documented process",
+    "Qualified staff perform regulatory label review prior to production (not a dedicated role), documented",
+    "Label review performed but informal / inconsistently documented",
+    "Label review only when customer specifically requests it, not routine",
+    "No label review process \u2014 relies entirely on customer-provided artwork, no internal check"
+  ],
+  moq: ["Under 1,000 units","1,000\u20132,499 units","2,500\u20134,999 units","5,000\u20139,999 units","10,000+ units"],
+  leadTime: ["15 business days or fewer","16\u201330 business days","31\u201345 business days","46\u201360 business days","More than 60 business days"],
+  netTerms: ["Net 60 or longer","Net 45","Net 30","Net 15","Due on delivery / prepayment required"],
+  deposit: ["No deposit required","1\u201325% deposit","26\u201350% deposit","51\u201375% deposit","76\u2013100% deposit"],
+  credit: ["Over $100,000","$50,000\u2013$100,000","$10,000\u2013$49,999","Under $10,000","No credit extended"],
+};
+
+function bandScore(list, idx){ if(idx===""||idx===null||idx===undefined) return null; const n=list.length; return n-Number(idx); }
+
+// ---- Criterion field definitions used to render forms + compute scores ----
+const QC_FIELDS = [
+  {key:"testingCapacity", label:"Testing Capacity", weightKey:"testingCapacity", options:OPTS.testingCapacity},
+  {key:"gmpMatch", label:"GMP Certification & Regulatory Compliance", weightKey:"gmpMatch", options:OPTS.gmpMatch, hardGateAt:5},
+  {key:"responsivenessResolution", label:"Responsiveness & Issue Resolution (queries, document requests \u2014 e.g. GMP cert, SDS \u2014 and non-quality issues)", weightKey:"responsivenessResolution", options:OPTS.responsivenessResolution},
+  {key:"productQuality", label:"Product Quality History (12 mo)", weightKey:"productQuality", options:OPTS.productQuality},
+  {key:"coaTurnaround", label:"COA Turnaround", weightKey:"coaTurnaround", options:OPTS.coaTurnaround},
+  {key:"labelReviewer", label:"Label Reviewer / Regulatory Label Review", weightKey:"labelReviewer", options:OPTS.labelReviewer},
+];
+
+// Onboarding-assessable (audit/documentation-based, answerable before any
+// order history) vs Performance (requires an actual track record with the
+// supplier). Used to compute the two automatic sub-scores below.
+const ONBOARDING_QC_KEYS = ["testingCapacity","gmpMatch","labelReviewer"];
+const PERFORMANCE_QC_KEYS = ["responsivenessResolution","productQuality","coaTurnaround"];
+
+/* ============================================================
+   STORAGE
+   Persistent storage (window.storage) only works when this file is
+   rendered live inside Claude's artifact preview. If it's opened as a
+   plain downloaded file, or the API isn't available for any other
+   reason, we fall back to an in-memory store for the current session
+   and rely on Export/Import to carry data across sessions instead.
+   ============================================================ */
+let storageMode = "unknown"; // "persistent" | "memory"
+let memoryDB = {};
+
+async function probeStorage(){
+  try{
+    if(typeof window.storage === "undefined") throw new Error("window.storage not available");
+    const testKey = "__probe__"+Date.now();
+    await window.storage.set(testKey, "1", true);
+    const readBack = await window.storage.get(testKey, true);
+    await window.storage.delete(testKey, true);
+    if(!readBack || readBack.value !== "1") throw new Error("storage probe read-back failed");
+    storageMode = "persistent";
+  }catch(e){
+    console.warn("Persistent storage unavailable, using in-memory fallback:", e);
+    storageMode = "memory";
+  }
+}
+
+async function listEvaluations(){
+  if(storageMode==="memory"){
+    return Object.values(memoryDB).sort((a,b)=> (b.computed?.totalScore ?? -1) - (a.computed?.totalScore ?? -1));
+  }
+  try{
+    const keys = await window.storage.list("evaluation:", true);
+    if(!keys || !keys.keys) return [];
+    const out=[];
+    for(const k of keys.keys){
+      try{
+        const res = await window.storage.get(k, true);
+        if(res && res.value) out.push(JSON.parse(res.value));
+      }catch(e){ /* skip unreadable */ }
+    }
+    out.sort((a,b)=> (b.computed?.totalScore ?? -1) - (a.computed?.totalScore ?? -1));
+    return out;
+  }catch(e){
+    console.error("listEvaluations failed:", e);
+    showToast("Couldn't load history: "+e.message);
+    return Object.values(memoryDB);
+  }
+}
+async function saveEvaluation(record){
+  if(storageMode==="memory"){ memoryDB[record.id]=record; return; }
+  try{
+    await window.storage.set("evaluation:"+record.id, JSON.stringify(record), true);
+  }catch(e){
+    console.error("saveEvaluation failed:", e);
+    memoryDB[record.id]=record; // don't lose the entry even if persistent save failed
+    showToast("Persistent save failed (\""+e.message+"\") \u2014 kept for this session only. Use Export to back it up.");
+    throw e;
+  }
+}
+async function deleteEvaluation(id){
+  delete memoryDB[id];
+  if(storageMode==="memory") return;
+  try{ await window.storage.delete(id.startsWith?.("evaluation:")?id:"evaluation:"+id, true); }
+  catch(e){ console.error("deleteEvaluation failed:", e); }
+}
+
+/* ---- Saved comparisons: a persisted record every time "Save Comparison"
+   is clicked, so it shows up in History \u2014 not just as a download.
+   Each save creates a NEW snapshot (never overwrites a prior one), so
+   adding a 3rd supplier later and saving again keeps both the 2-supplier
+   and 3-supplier comparisons on record. ---- */
+let memoryComparisons = {};
+async function listComparisons(){
+  if(storageMode==="memory"){
+    return Object.values(memoryComparisons).sort((a,b)=>(b.savedAt||0)-(a.savedAt||0));
+  }
+  try{
+    const keys = await window.storage.list("comparison:", true);
+    if(!keys || !keys.keys) return [];
+    const out=[];
+    for(const k of keys.keys){
+      try{ const res = await window.storage.get(k, true); if(res && res.value) out.push(JSON.parse(res.value)); }
+      catch(e){ /* skip unreadable */ }
+    }
+    out.sort((a,b)=>(b.savedAt||0)-(a.savedAt||0));
+    return out;
+  }catch(e){
+    console.error("listComparisons failed:", e);
+    return Object.values(memoryComparisons);
+  }
+}
+async function saveComparisonRecord(productLabel, suppliers){
+  const best = pickBestSupplier(suppliers);
+  const record = {
+    id: Date.now()+"-"+Math.random().toString(36).slice(2,8),
+    product: productLabel,
+    savedAt: Date.now(),
+    bestSupplier: best ? best.supplier : null,
+    bestScore: best ? best.computed.totalScore : null,
+    suppliers: suppliers.map(e=>({
+      supplier: e.supplier, status: e.status, totalScore: e.computed.totalScore,
+      rating: e.computed.rating, hardGate: e.computed.hardGate,
+      qcTotal: e.computed.qcTotal, procTotal: e.computed.procTotal,
+      onboardingScore: e.computed.onboardingScore, performanceScore: e.computed.performanceScore,
+    })),
+  };
+  if(storageMode==="memory"){ memoryComparisons[record.id]=record; return record; }
+  try{ await window.storage.set("comparison:"+record.id, JSON.stringify(record), true); }
+  catch(e){
+    console.error("saveComparisonRecord failed:", e);
+    memoryComparisons[record.id]=record;
+    showToast("Comparison saved for this session only \u2014 persistent save failed.");
+  }
+  return record;
+}
+async function deleteComparison(id){
+  delete memoryComparisons[id];
+  if(storageMode==="memory") return;
+  try{ await window.storage.delete(id.startsWith?.("comparison:")?id:"comparison:"+id, true); }
+  catch(e){ console.error("deleteComparison failed:", e); }
+}
+function exportAll(evals){
+  const blob = new Blob([JSON.stringify(evals, null, 2)], {type:"application/json"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = "supplier-evaluations-export.json";
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+async function importAll(file){
+  const text = await file.text();
+  let records;
+  try{ records = JSON.parse(text); }
+  catch(e){ showToast("That file isn't valid JSON."); return; }
+  if(!Array.isArray(records)){ showToast("Expected a JSON array of evaluations."); return; }
+  let count=0;
+  for(const r of records){
+    if(!r.id || !r.supplier) continue;
+    try{ await saveEvaluation(r); count++; } catch(e){ /* already logged/toasted */ }
+  }
+  showToast(`Imported ${count} evaluation${count===1?"":"s"}.`);
+}
+function exportOne(record){
+  const blob = new Blob([JSON.stringify(record, null, 2)], {type:"application/json"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const safeName = (record.supplier+"_"+(record.product||"evaluation")).replace(/[^\w.-]+/g,"_");
+  a.href = url; a.download = safeName+".json";
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+function exportComparisonRecord(record){
+  const blob = new Blob([JSON.stringify(record, null, 2)], {type:"application/json"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const safeName = ("Comparison_"+record.product).replace(/[^\w.-]+/g,"_");
+  a.href = url; a.download = safeName+".json";
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+function startNewForProduct(productLabel){
+  editingRecord = { supplier:"", product: productLabel, notes:"", proc:{}, qc:{} };
+  currentView="new"; setActiveNav(); render();
+}
+
+/* ============================================================
+   Full-detail breakdown (every question + the answer given)
+   ============================================================ */
+function labelFor(list, idx){
+  if(idx===""||idx===null||idx===undefined) return "Not answered";
+  const v = list[Number(idx)];
+  return v===undefined ? "Not answered" : v;
+}
+function detailRow(label, val){
+  return `<div class="rowlabel" style="font-weight:400;">${escapeHtml(label)}</div><div class="cell">${escapeHtml(val)}</div>`;
+}
+function renderDetailBreakdown(e){
+  const p = e.proc||{}, q = e.qc||{};
+  const costText = p.actualCost ? `$${p.actualCost}/unit` : "Not answered";
+  const procRows = [
+    detailRow("Product Cost (Turnkey)", costText),
+    detailRow("Payment Terms \u2014 Net terms", labelFor(OPTS.netTerms, p.netTerms)),
+    detailRow("Payment Terms \u2014 Deposit", labelFor(OPTS.deposit, p.deposit)),
+    detailRow("Payment Terms \u2014 Credit limit", labelFor(OPTS.credit, p.credit)),
+    detailRow("MOQ", labelFor(OPTS.moq, p.moq)),
+    detailRow("Lead Time", labelFor(OPTS.leadTime, p.leadTime)),
+  ].join("");
+  const qcRows = QC_FIELDS.map(f=>detailRow(f.label, labelFor(f.options, q[f.key]))).join("");
+  return `<div style="display:grid;grid-template-columns:240px 1fr;gap:0;font-size:13px;max-width:720px;">
+    <div class="rowlabel" style="font-weight:700;">Procurement</div><div class="cell"></div>
+    ${procRows}
+    <div class="rowlabel" style="font-weight:700;margin-top:6px;">Quality</div><div class="cell"></div>
+    ${qcRows}
+    ${e.notes?`<div class="rowlabel" style="font-weight:700;">Notes</div><div class="cell">${escapeHtml(e.notes)}</div>`:""}
+  </div>`;
+}
+function detailToggleButton(id){
+  return `<button class="btn secondary" data-view-detail="${id}" style="padding:4px 10px;font-size:12px;">View</button>`;
+}
+function editButton(id){
+  return `<button class="btn secondary" data-edit="${id}" style="padding:4px 10px;font-size:12px;">Edit</button>`;
+}
+function saveButton(id){
+  return `<button class="btn secondary" data-export="${id}" style="padding:4px 10px;font-size:12px;">Save</button>`;
+}
+function detailRowMarkup(id, colspan, record){
+  return `<tr class="detail-row" data-detail-for="${id}" style="display:none;"><td colspan="${colspan}" style="background:#FAFBFC;">${renderDetailBreakdown(record)}</td></tr>`;
+}
+function wireDetailAndExportButtons(recordLookup){
+  document.querySelectorAll("[data-view-detail]").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const id = btn.getAttribute("data-view-detail");
+      const row = document.querySelector(`[data-detail-for="${CSS.escape(id)}"]`);
+      if(row) row.style.display = (row.style.display==="none"||!row.style.display) ? "table-row" : "none";
+    });
+  });
+  document.querySelectorAll("[data-export]").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const rec = recordLookup(btn.getAttribute("data-export"));
+      if(rec) exportOne(rec); else showToast("Couldn't find that evaluation.");
+    });
+  });
+}
+function wireEditButtons(recordLookup){
+  document.querySelectorAll("[data-edit]").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const rec = recordLookup(btn.getAttribute("data-edit"));
+      if(!rec){ showToast("Couldn't find that evaluation."); return; }
+      editingRecord = rec;
+      currentView="new"; setActiveNav(); render();
+    });
+  });
+}
+
+/* ============================================================
+   COMPUTE SCORE
+   ============================================================ */
+function computeScores(form){
+  // QC side
+  let qcSum=0, qcWeightUsed=0, hardGate=false;
+  const qcDetail={};
+  for(const f of QC_FIELDS){
+    const idx = form.qc[f.key];
+    const score = bandScore(f.options, idx);
+    const w = QC_WEIGHTS[f.weightKey];
+    qcDetail[f.key]={score, weight:w};
+    if(score!==null){
+      qcWeightUsed += w;
+      qcSum += (score/5)*w;
+      if(f.hardGateAt && score===1) hardGate=true;
+    }
+  }
+  const qcRescale = qcWeightUsed>0 ? QC_TOTAL/qcWeightUsed : 0;
+  const qcTotal = qcSum*qcRescale;
+
+  // Procurement side
+  const p = form.proc;
+  // Product Cost is reference-only now (shown/compared as a raw number, see
+  // the "Cheapest" flag in the comparison grid) \u2014 it never contributes a
+  // score. Always null here so the existing rescale-if-unanswered logic
+  // spreads its 20% weight across Payment Terms, MOQ, and Lead Time.
+  const productCostScore = null;
+  const paymentScore = averageOf([bandScore(OPTS.netTerms,p.netTerms), bandScore(OPTS.deposit,p.deposit), bandScore(OPTS.credit,p.credit)]);
+  const moqScore = bandScore(OPTS.moq, p.moq);
+  const leadTimeScore = bandScore(OPTS.leadTime, p.leadTime);
+
+  const procDetail = {
+    productCost:{score:productCostScore, weight:PROC_WEIGHTS.productCost},
+    paymentTerms:{score:paymentScore, weight:PROC_WEIGHTS.paymentTerms},
+    moq:{score:moqScore, weight:PROC_WEIGHTS.moq},
+    leadTime:{score:leadTimeScore, weight:PROC_WEIGHTS.leadTime},
+  };
+  let procSum=0, procWeightUsed=0;
+  for(const k in procDetail){
+    const d = procDetail[k];
+    if(d.score!==null){ procWeightUsed += d.weight; procSum += (d.score/5)*d.weight; }
+  }
+  const procRescale = procWeightUsed>0 ? PROC_TOTAL/procWeightUsed : 0;
+  const procTotal = procSum*procRescale;
+
+  const totalScore = qcTotal+procTotal;
+  const completenessQC = qcWeightUsed/QC_TOTAL;
+  const completenessProc = procWeightUsed/PROC_TOTAL;
+
+  // Onboarding vs Performance split: some QC criteria can be assessed before
+  // any order history exists (audit/documentation-based); others genuinely
+  // require a track record. Computed automatically for every evaluation so
+  // a brand-new supplier and an established one can be read on the basis
+  // that's actually available for each, rather than forcing one blended
+  // number that quietly rests on very different amounts of real data.
+  function subsetScore(keys){
+    let sum=0, weightUsed=0;
+    for(const k of keys){
+      const d = qcDetail[k];
+      if(d && d.score!==null){ weightUsed += d.weight; sum += (d.score/5)*d.weight; }
+    }
+    if(weightUsed===0) return null;
+    return (sum/weightUsed)*100;
+  }
+  const onboardingScore = subsetScore(ONBOARDING_QC_KEYS);
+  const performanceScore = subsetScore(PERFORMANCE_QC_KEYS);
+
+  let rating, recommendation;
+  if(hardGate){ rating="NOT APPROVED"; recommendation="Hard gate \u2014 GMP disqualification"; }
+  else if(completenessQC===0 && completenessProc===0){ rating="\u2014"; recommendation="No data entered"; }
+  else if(totalScore>=90){ rating="Excellent"; recommendation="Strong candidate"; }
+  else if(totalScore>=80){ rating="Good"; recommendation="Recommended"; }
+  else if(totalScore>=70){ rating="Acceptable"; recommendation="Consider / monitor"; }
+  else if(totalScore>=60){ rating="Risk"; recommendation="Needs improvement or negotiation"; }
+  else { rating="Poor"; recommendation="Not recommended"; }
+
+  return { qcTotal, procTotal, totalScore, hardGate, rating, recommendation,
+           completenessQC, completenessProc, qcDetail, procDetail,
+           onboardingScore, performanceScore };
+}
+function computeCostScore(target, actual){
+  target=parseFloat(target); actual=parseFloat(actual);
+  if(isNaN(target)||isNaN(actual)||target<=0) return null;
+  const variance = (actual-target)/target;
+  if(variance<=0) return 5;
+  if(variance<=0.05) return 4;
+  if(variance<=0.15) return 3;
+  if(variance<=0.25) return 2;
+  return 1;
+}
+function bandScore3(list, idx, n){ if(idx===""||idx===null||idx===undefined) return null; const len=n||3; if(len===2) return idx==0?5:1; return [5,3,1][Number(idx)]; }
+function averageOf(arr){ const v=arr.filter(x=>x!==null&&x!==undefined); if(!v.length) return null; return v.reduce((a,b)=>a+b,0)/v.length; }
+
+/* ============================================================
+   RENDER: New Evaluation form
+   ============================================================ */
+function selectField(labelText, options, name, extraNote){
+  const opts = options.map((o,i)=>`<option value="${i}">${o}</option>`).join("");
+  return `<label class="field">${labelText}</label>
+    <select id="${name}" name="${name}"><option value="">Not answered</option>${opts}</select>
+    ${extraNote?`<div class="hint">${extraNote}</div>`:""}`;
+}
+
+function renderNew(editing){
+  let title = "New Supplier Evaluation";
+  if(editing && editing.id){
+    const ref = editing.refNumber ? formatRefNumber(editing.refNumber)+" \u2014 " : "";
+    title = ref + (editing.status==="submitted" ? "Editing \u2014 " : "Resuming Draft \u2014 ") + escapeHtml(editing.supplier||"");
+  } else if(editing && editing.product){
+    title = `New Evaluation for "${escapeHtml(editing.product)}"`;
+  }
+  return `
+  <h1>${title}</h1>
+  <p class="sub">Your answers save automatically as you go \u2014 nothing is lost even if you leave it half-finished. Unfinished evaluations show up under "Ongoing" so you can pick them back up. Click <strong>Submit Evaluation</strong> when it's ready to count toward that product's comparison. Any question left as "Not answered" is excluded from scoring and the remaining answered criteria are rescaled to fill their side's full weight.</p>
+
+  <div class="panel">
+    <h2>Supplier Details</h2>
+    <div class="grid2">
+      <div><label class="field">Supplier / Company Name</label><input type="text" id="f-supplier" placeholder="e.g. Blue Mountain"></div>
+      <div><label class="field">Product / Spec Being Quoted</label><input type="text" id="f-product" placeholder="e.g. Nusava Saffron Gummies"></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Section A \u2014 Commercial / Procurement <span class="weight-tag">(70% of total)</span></h2>
+
+    <label class="field">1. Product Cost (Turnkey)</label>
+    <div class="grid2">
+      <div><label class="hint">Quoted Cost (USD/unit, Turnkey) \u2014 reference only, compared directly against other suppliers for this product</label><input type="number" step="0.01" id="p-actualCost"></div>
+    </div>
+
+    <label class="field">2. Payment Terms</label>
+    <div class="grid3">
+      <div>${selectField("Net terms", OPTS.netTerms, "p-netTerms")}</div>
+      <div>${selectField("Deposit required", OPTS.deposit, "p-deposit")}</div>
+      <div>${selectField("Credit limit", OPTS.credit, "p-credit")}</div>
+    </div>
+
+    ${selectField("3. Minimum Order Quantity (MOQ)", OPTS.moq, "p-moq")}
+    ${selectField("4. Lead Time (PO issuance to ship-ready)", OPTS.leadTime, "p-leadTime")}
+  </div>
+
+  <div class="panel">
+    <h2>Section B \u2014 Quality &amp; Regulatory <span class="weight-tag">(30% of total)</span></h2>
+    ${QC_FIELDS.map((f,i)=>selectField(`${i+1}. ${f.label}`, f.options, "q-"+f.key,
+        f.key==="gmpMatch" ? "Selecting the bottom option triggers an automatic Hard Gate \u2014 Not Approved." : null
+      )).join("")}
+  </div>
+
+  <div class="panel">
+    <h2>Notes</h2>
+    <textarea id="f-notes" rows="3" placeholder="Any additional context (attachments referenced, follow-ups needed, etc.)"></textarea>
+  </div>
+
+  <div class="actions-row">
+    <button class="btn" id="btn-save">Submit Evaluation</button>
+    <button class="btn secondary" id="btn-preview">Preview Score</button>
+    <span class="completeness" id="autosave-status" style="align-self:center;"></span>
+  </div>
+  <div id="preview-box"></div>
+  `;
+}
+
+function collectForm(){
+  const v = id => document.getElementById(id).value;
+  return {
+    supplier: v("f-supplier").trim(),
+    product: v("f-product").trim(),
+    notes: v("f-notes"),
+    proc: {
+      actualCost: v("p-actualCost"),
+      netTerms: v("p-netTerms"), deposit: v("p-deposit"), credit: v("p-credit"),
+      moq: v("p-moq"), leadTime: v("p-leadTime"),
+    },
+    qc: Object.fromEntries(QC_FIELDS.map(f=>[f.key, v("q-"+f.key)])),
+  };
+}
+
+function fillFormFields(record){
+  const set = (id, val) => { const el = document.getElementById(id); if(el) el.value = (val===undefined||val===null) ? "" : val; };
+  set("f-supplier", record.supplier);
+  set("f-product", record.product);
+  set("f-notes", record.notes);
+  const p = record.proc || {};
+  set("p-actualCost", p.actualCost);
+  set("p-netTerms", p.netTerms); set("p-deposit", p.deposit); set("p-credit", p.credit);
+  set("p-moq", p.moq); set("p-leadTime", p.leadTime);
+  const q = record.qc || {};
+  QC_FIELDS.forEach(f => set("q-"+f.key, q[f.key]));
+}
+
+function ratingBadgeClass(rating){
+  if(rating==="NOT APPROVED") return "gate";
+  return (rating||"").toLowerCase();
+}
+
+function renderPreview(form, computed){
+  const onboardingText = computed.onboardingScore!==null ? computed.onboardingScore.toFixed(0)+"%" : "No data";
+  const performanceText = computed.performanceScore!==null ? computed.performanceScore.toFixed(0)+"%" : "No track record yet";
+  return `
+  <div class="panel" style="margin-top:16px;background:var(--accent-soft);border-color:var(--accent);">
+    <h2>Score Preview</h2>
+    <table>
+      <tr><td><strong>QC Subtotal</strong></td><td class="num">${computed.qcTotal.toFixed(1)} / 30</td>
+          <td class="completeness">${Math.round(computed.completenessQC*100)}% of QC criteria answered</td></tr>
+      <tr><td><strong>Procurement Subtotal</strong></td><td class="num">${computed.procTotal.toFixed(1)} / 70</td>
+          <td class="completeness">${Math.round(computed.completenessProc*100)}% of Procurement criteria answered</td></tr>
+      <tr><td><strong>Total Score</strong></td><td class="num"><strong>${computed.totalScore.toFixed(1)} / 100</strong></td><td></td></tr>
+      <tr><td><strong>Rating</strong></td><td><span class="badge ${ratingBadgeClass(computed.rating)}">${computed.rating}</span></td>
+          <td>${computed.recommendation}</td></tr>
+      <tr><td>Onboarding Score</td><td class="num">${onboardingText}</td>
+          <td class="completeness">Testing Capacity + GMP + Label Reviewer \u2014 answerable before any order history</td></tr>
+      <tr><td>Performance Score</td><td class="num">${performanceText}</td>
+          <td class="completeness">Responsiveness/Issue Resolution + Product Quality + COA \u2014 requires a track record</td></tr>
+    </table>
+  </div>`;
+}
+
+/* ============================================================
+   RENDER: History
+   ============================================================ */
+function storageBanner(){
+  if(storageMode==="persistent") return "";
+  return `<div class="panel" style="background:var(--gold-soft);border-color:var(--gold);">
+    <strong>Persistent save isn't available in this preview</strong>
+    <p class="hint" style="margin-top:6px;">Evaluations you add will stay visible for the rest of this session, but won't survive a refresh or be saved for next time. Use <strong>Export All</strong> below regularly to keep a backup file, and <strong>Import</strong> it back in next session.</p>
+  </div>`;
+}
+function exportImportBar(){
+  return `<div class="actions-row" style="margin-bottom:18px;">
+    <button class="btn secondary" id="btn-export">Export All (.json)</button>
+    <label class="btn secondary" style="display:inline-block;">
+      Import .json<input type="file" id="file-import" accept="application/json" style="display:none;">
+    </label>
+  </div>`;
+}
+async function renderHistory(){
+  const comparisons = await listComparisons();
+  lastComparisonList = comparisons;
+  const banner = storageBanner();
+
+  if(!comparisons.length){
+    return `<h1>History</h1><p class="sub">The final result of every comparison you save (from "By Product") logs here \u2014 nothing else. Individual evaluations live under "Ongoing" and "By Product".</p>
+            ${banner}
+            <div class="empty">No comparisons saved yet. Once a product has 2+ suppliers submitted, use Compare \u2192 Save Comparison on "By Product".</div>`;
+  }
+
+  const rows = comparisons.map(cmp=>{
+    const supplierList = cmp.suppliers.map(s=>escapeHtml(s.supplier)).join(", ");
+    const bestText = cmp.bestSupplier ? `${escapeHtml(cmp.bestSupplier)} (${cmp.bestScore.toFixed(1)})` : "None (all hard-gated)";
+    return `<tr>
+      <td>${escapeHtml(cmp.product)}</td>
+      <td>${supplierList} (${cmp.suppliers.length})</td>
+      <td><strong>${bestText}</strong></td>
+      <td>${relativeTime(cmp.savedAt)}</td>
+      <td>
+        <button class="btn secondary" data-view-comparison="${cmp.id}" style="padding:4px 10px;font-size:12px;">View</button>
+        <button class="btn secondary" data-export-comparison="${cmp.id}" style="padding:4px 10px;font-size:12px;">Save</button>
+        <button class="btn danger" data-del-comparison="${cmp.id}" style="padding:4px 10px;font-size:12px;">Delete</button>
+      </td>
+    </tr>
+    <tr class="detail-row" data-comparison-detail-for="${cmp.id}" style="display:none;">
+      <td colspan="5" style="background:#FAFBFC;">
+        <div style="display:grid;grid-template-columns:200px 1fr;gap:0;font-size:13px;">
+          ${cmp.suppliers.map(s=>{
+            const onboardingText = (s.onboardingScore!==null && s.onboardingScore!==undefined) ? s.onboardingScore.toFixed(0)+"%" : "No data";
+            const performanceText = (s.performanceScore!==null && s.performanceScore!==undefined) ? s.performanceScore.toFixed(0)+"%" : "No track record yet";
+            return `<div class="rowlabel" style="font-weight:400;">${escapeHtml(s.supplier)}${s.hardGate?" (Hard Gate)":""}</div><div class="cell">Total ${s.totalScore.toFixed(1)} / 100 \u00b7 ${escapeHtml(s.rating)} \u00b7 QC ${s.qcTotal.toFixed(1)} \u00b7 Proc ${s.procTotal.toFixed(1)} \u00b7 Onboarding ${onboardingText} \u00b7 Performance ${performanceText}</div>`;
+          }).join("")}
+        </div>
+      </td>
+    </tr>`;
+  }).join("");
+
+  return `
+  <h1>History</h1>
+  <p class="sub">The final result of every comparison you save (from "By Product") \u2014 nothing else. Each save keeps its own snapshot, so adding a new supplier and saving again won't overwrite an earlier comparison. Individual evaluations live under "Ongoing" and "By Product".</p>
+  ${banner}
+  <table>
+    <tr><th>Product</th><th>Suppliers</th><th>Best Supplier</th><th>Saved</th><th></th></tr>
+    ${rows}
+  </table>`;
+}
+function wireHistoryView(){
+  document.querySelectorAll("[data-del-comparison]").forEach(btn=>{
+    btn.addEventListener("click", async ()=>{
+      await deleteComparison(btn.getAttribute("data-del-comparison"));
+      showToast("Saved comparison deleted.");
+      render();
+    });
+  });
+  document.querySelectorAll("[data-view-comparison]").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const id = btn.getAttribute("data-view-comparison");
+      const row = document.querySelector(`[data-comparison-detail-for="${CSS.escape(id)}"]`);
+      if(row) row.style.display = (row.style.display==="none"||!row.style.display) ? "table-row" : "none";
+    });
+  });
+  document.querySelectorAll("[data-export-comparison]").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const id = btn.getAttribute("data-export-comparison");
+      const rec = lastComparisonList.find(c=>c.id===id);
+      if(rec) exportComparisonRecord(rec); else showToast("Couldn't find that comparison.");
+    });
+  });
+}
+
+/* ============================================================
+   RENDER: Ongoing (drafts not yet submitted)
+   ============================================================ */
+async function renderOngoing(){
+  const evals = await listEvaluations();
+  const drafts = evals.filter(e=>e.status!=="submitted").sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));
+  lastOngoingList = drafts;
+  const banner = storageBanner();
+  if(!drafts.length){
+    return `<h1>Ongoing</h1><p class="sub">Evaluations you've started but not yet submitted show up here so you can pick back up where you left off.</p>
+            ${banner}<div class="empty">Nothing in progress right now.</div>`;
+  }
+  const colspan = 6;
+  const rows = drafts.map(e=>{
+    const c = e.computed;
+    return `<tr>
+      <td class="num">${formatRefNumber(e.refNumber)}</td>
+      <td>${escapeHtml(e.supplier)}</td>
+      <td>${escapeHtml(e.product && e.product.trim() ? e.product : "(No product specified)")}</td>
+      <td class="completeness">QC ${Math.round(c.completenessQC*100)}% \u00b7 Proc ${Math.round(c.completenessProc*100)}%</td>
+      <td>${relativeTime(e.updatedAt)}</td>
+      <td>
+        <button class="btn secondary" data-resume="${e.id}" style="padding:4px 10px;font-size:12px;">Resume</button>
+        ${detailToggleButton(e.id)} ${saveButton(e.id)}
+        <button class="btn danger" data-del="${e.id}" style="padding:4px 10px;font-size:12px;">Delete</button>
+      </td>
+    </tr>${detailRowMarkup(e.id, colspan, e)}`;
+  }).join("");
+  return `
+  <h1>Ongoing</h1>
+  <p class="sub">Evaluations you've started but not yet submitted. Resume one to keep filling it in \u2014 nothing already answered gets lost.</p>
+  ${banner}
+  <table>
+    <tr><th>Ref #</th><th>Supplier</th><th>Product</th><th>Completeness</th><th>Last saved</th><th></th></tr>
+    ${rows}
+  </table>`;
+}
+function wireOngoingView(){
+  document.querySelectorAll("[data-del]").forEach(btn=>{
+    btn.addEventListener("click", async ()=>{
+      await deleteEvaluation(btn.getAttribute("data-del"));
+      showToast("Evaluation deleted.");
+      render();
+    });
+  });
+  document.querySelectorAll("[data-resume]").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const rec = lastOngoingList.find(e=>e.id===btn.getAttribute("data-resume"));
+      if(!rec){ showToast("Couldn't find that evaluation \u2014 try refreshing Ongoing."); return; }
+      editingRecord = rec;
+      currentView="new"; setActiveNav(); render();
+    });
+  });
+  wireDetailAndExportButtons(id => lastOngoingList.find(e=>e.id===id));
+}
+
+/* ============================================================
+   RENDER: By Product (grouped list + automatic per-product comparison)
+   ============================================================ */
+const COMPARE_ROWS = [
+  {label:"Total Score", get:e=>`<strong class="num">${e.computed.totalScore.toFixed(1)} / 100</strong>`},
+  {label:"Rating", get:e=>`<span class="badge ${ratingBadgeClass(e.computed.rating)}">${e.computed.rating}</span>`},
+  {label:"Status", get:e=>e.status==="submitted"?'<span class="badge good">Submitted</span>':'<span class="badge acceptable">Draft</span>'},
+  {label:"QC Subtotal", get:e=>`<span class="num">${e.computed.qcTotal.toFixed(1)} / 30</span>`},
+  {label:"Onboarding Score", get:e=>e.computed.onboardingScore!==null ? `<span class="num">${e.computed.onboardingScore.toFixed(0)}%</span>` : "No data"},
+  {label:"Performance Score", get:e=>e.computed.performanceScore!==null ? `<span class="num">${e.computed.performanceScore.toFixed(0)}%</span>` : "No track record yet"},
+  {label:"Procurement Subtotal", get:e=>`<span class="num">${e.computed.procTotal.toFixed(1)} / 70</span>`},
+  {label:"Data completeness", get:e=>`QC ${Math.round(e.computed.completenessQC*100)}% \u00b7 Proc ${Math.round(e.computed.completenessProc*100)}%`},
+  {label:"GMP Status", get:e=>OPTS.gmpMatch[5-e.computed.qcDetail.gmpMatch.score]||"Not answered"},
+  {label:"Label Reviewer", get:e=>OPTS.labelReviewer[5-e.computed.qcDetail.labelReviewer.score]||"Not answered"},
+  {label:"Product Quality History", get:e=>OPTS.productQuality[5-e.computed.qcDetail.productQuality.score]||"Not answered"},
+  {label:"COA Turnaround", get:e=>OPTS.coaTurnaround[5-e.computed.qcDetail.coaTurnaround.score]||"Not answered"},
+  {label:"Lead Time", get:e=>OPTS.leadTime[5-e.computed.procDetail.leadTime.score]||"Not answered"},
+  {label:"Quoted Cost (USD/unit)", get:(e, all)=>{
+    if(!e.proc.actualCost) return "\u2014";
+    const cost = parseFloat(e.proc.actualCost);
+    const costs = (all||[]).map(x=>x.proc.actualCost?parseFloat(x.proc.actualCost):null).filter(c=>c!==null);
+    const isCheapest = costs.length>1 && cost===Math.min(...costs);
+    return `$${cost.toFixed(2)}` + (isCheapest ? ` <strong style="color:var(--green);">\u2193 Cheapest</strong>` : "");
+  }},
+];
+function pickBestSupplier(suppliers){
+  const eligible = suppliers.filter(e=>!e.computed.hardGate);
+  if(!eligible.length) return null;
+  return eligible.reduce((best,cur)=> cur.computed.totalScore>best.computed.totalScore ? cur : best, eligible[0]);
+}
+function renderCompareGrid(chosen){
+  const best = pickBestSupplier(chosen);
+  const banner = best
+    ? `<div class="panel" style="background:var(--green-soft);border-color:var(--green);margin-bottom:12px;">
+        <strong>Best Supplier: ${escapeHtml(best.supplier)}</strong> \u2014 Total Score ${best.computed.totalScore.toFixed(1)} / 100 (${best.computed.rating})
+      </div>`
+    : `<div class="panel" style="background:var(--red-soft);border-color:var(--red);margin-bottom:12px;">
+        <strong>No qualifying supplier</strong> \u2014 every compared supplier is disqualified by the GMP hard gate.
+      </div>`;
+  const cols = chosen.map(e=>{
+    const isBest = best && e.id===best.id;
+    return `<div class="colhead" style="${isBest?"color:var(--green);":""}">${escapeHtml(e.supplier)}${isBest?" \u2605 Best":""}</div>`;
+  }).join("");
+  const bodyRows = COMPARE_ROWS.map(r=>{
+    const cells = chosen.map(e=>`<div class="cell">${r.get(e, chosen)}</div>`).join("");
+    return `<div class="rowlabel">${r.label}</div>${cells}`;
+  }).join("");
+  return banner + `<div class="compare-grid" style="grid-template-columns:180px repeat(${chosen.length},1fr);">
+    <div></div>${cols}${bodyRows}
+  </div>`;
+}
+
+async function renderByProduct(){
+  const evals = await listEvaluations();
+  lastByProductList = evals;
+  groupLabelsByIdx = {};
+  compareGroupsByIdx = {};
+  const banner = storageBanner();
+  if(!evals.length){
+    return `<h1>By Product</h1><p class="sub">Evaluations are grouped by product. Once two or more suppliers for the same product are submitted, a Compare button appears for that product.</p>
+            ${banner}${exportImportBar()}
+            <div class="empty">No evaluations yet. Start one from "+ New Evaluation".</div>`;
+  }
+  const groups = {};
+  const order = [];
+  for(const e of evals){
+    const key = (e.product||"").trim().toLowerCase() || "\u0000none";
+    if(!groups[key]){ groups[key] = { label: e.product && e.product.trim() ? e.product.trim() : "(No product specified)", items: [] }; order.push(key); }
+    groups[key].items.push(e);
+  }
+  const colspan = 9;
+  const sections = order.map((key,idx)=>{
+    const g = groups[key];
+    groupLabelsByIdx[idx] = g.label;
+    const rows = g.items.map(e=>{
+      const c = e.computed;
+      const statusBadge = e.status==="submitted" ? '<span class="badge good">Submitted</span>' : '<span class="badge acceptable">Draft</span>';
+      return `<tr>
+        <td class="num">${formatRefNumber(e.refNumber)}</td>
+        <td>${escapeHtml(e.supplier)}</td>
+        <td>${statusBadge}</td>
+        <td class="num">${c.qcTotal.toFixed(1)}</td>
+        <td class="num">${c.procTotal.toFixed(1)}</td>
+        <td class="num"><strong>${c.totalScore.toFixed(1)}</strong></td>
+        <td><span class="badge ${ratingBadgeClass(c.rating)}">${c.rating}</span></td>
+        <td class="completeness">QC ${Math.round(c.completenessQC*100)}% \u00b7 Proc ${Math.round(c.completenessProc*100)}%</td>
+        <td>${editButton(e.id)} ${detailToggleButton(e.id)} ${saveButton(e.id)}
+            <button class="btn danger" data-del="${e.id}" style="padding:4px 10px;font-size:12px;">Delete</button></td>
+      </tr>${detailRowMarkup(e.id, colspan, e)}`;
+    }).join("");
+    const submitted = g.items.filter(e=>e.status==="submitted");
+    let compareBlock = "";
+    if(submitted.length>=2){
+      compareGroupsByIdx[idx] = { label: g.label, submitted };
+      compareBlock = `<div class="actions-row" style="margin-top:16px;">
+        <button class="btn" data-compare="${idx}" data-count="${submitted.length}">Compare (${submitted.length} suppliers)</button>
+      </div>
+      <div data-compare-container="${idx}" style="display:none;margin-top:12px;">
+        ${renderCompareGrid(submitted)}
+        <div class="actions-row" style="margin-top:12px;">
+          <button class="btn secondary" data-save-compare="${idx}">Save Comparison</button>
+        </div>
+      </div>`;
+    } else if(g.items.length>=1){
+      const need = 2 - submitted.length;
+      compareBlock = `<p class="hint" style="margin-top:10px;">A Compare button appears once at least 2 suppliers for this product are <strong>submitted</strong> (drafts don't count). ${need>0?`${need} more submission${need===1?"":"s"} needed.`:""}</p>`;
+    }
+    return `<div class="panel">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <h2 style="margin:0;">${escapeHtml(g.label)}</h2>
+        <button class="btn secondary" data-add-supplier="${idx}" style="padding:5px 12px;font-size:13px;">+ Add Supplier</button>
+      </div>
+      <table>
+        <tr><th>Ref #</th><th>Supplier</th><th>Status</th><th>QC</th><th>Proc.</th><th>Total</th><th>Rating</th><th>Completeness</th><th></th></tr>
+        ${rows}
+      </table>
+      ${compareBlock}
+    </div>`;
+  }).join("");
+  return `
+  <h1>By Product</h1>
+  <p class="sub">Evaluations are grouped by product. Once two or more suppliers for the same product are submitted, a Compare button appears below that product's list. Use <strong>+ Add Supplier</strong> to evaluate another supplier against the same product.</p>
+  ${banner}${exportImportBar()}
+  ${sections}`;
+}
+
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+/* ============================================================
+   APP SHELL / ROUTING
+   ============================================================ */
+let currentView="new";
+let currentDraftId=null;
+let currentDraftStatus=null;
+let currentDraftRefNumber=null;
+let autoSaveTimer=null;
+let editingRecord=null;
+let lastOngoingList=[];
+let lastComparisonList=[];
+let lastByProductList=[];
+let groupLabelsByIdx={};
+let compareGroupsByIdx={};
+let memoryRefCounter=0;
+
+async function getNextRefNumber(){
+  if(storageMode==="memory"){
+    memoryRefCounter += 1;
+    return memoryRefCounter;
+  }
+  let current = 0;
+  try{
+    const res = await window.storage.get("meta:evalCounter", true);
+    current = (res && res.value) ? parseInt(res.value, 10) || 0 : 0;
+  }catch(e){ current = memoryRefCounter; }
+  const next = current + 1;
+  try{ await window.storage.set("meta:evalCounter", String(next), true); }
+  catch(e){ memoryRefCounter = next; return next; }
+  return next;
+}
+function formatRefNumber(n){
+  return n ? "EVAL-"+String(n).padStart(3,"0") : "\u2014";
+}
+// Resolves (and, for a genuinely new supplier+product pair, assigns) the
+// id/status/refNumber for the record currently being edited in "+ New
+// Evaluation" \u2014 shared by both autosave and Submit so they never disagree.
+async function resolveDraftIdentity(form){
+  if(currentDraftId){
+    return { id: currentDraftId, status: currentDraftStatus, refNumber: currentDraftRefNumber };
+  }
+  const existing = (await listEvaluations()).find(e =>
+    e.supplier.trim().toLowerCase()===form.supplier.trim().toLowerCase() &&
+    (e.product||"").trim().toLowerCase()===(form.product||"").trim().toLowerCase()
+  );
+  if(existing){
+    currentDraftId = existing.id;
+    currentDraftStatus = existing.status;
+    currentDraftRefNumber = existing.refNumber || null;
+  }else{
+    currentDraftId = Date.now()+"-"+Math.random().toString(36).slice(2,8);
+    currentDraftStatus = null;
+    currentDraftRefNumber = await getNextRefNumber();
+  }
+  return { id: currentDraftId, status: currentDraftStatus, refNumber: currentDraftRefNumber };
+}
+
+async function render(){
+  const main = document.getElementById("main");
+  if(currentView==="new"){ main.innerHTML = renderNew(editingRecord); wireNewView(editingRecord); }
+  else if(currentView==="ongoing"){ main.innerHTML = await renderOngoing(); wireOngoingView(); }
+  else if(currentView==="history"){ main.innerHTML = await renderHistory(); wireHistoryView(); }
+  else if(currentView==="byproduct"){ main.innerHTML = await renderByProduct(); wireByProductView(); }
+}
+
+function relativeTime(ts){
+  if(!ts) return "\u2014";
+  const diffMs = Date.now()-ts;
+  const mins = Math.round(diffMs/60000);
+  if(mins<1) return "just now";
+  if(mins<60) return mins+" min ago";
+  const hrs = Math.round(mins/60);
+  if(hrs<24) return hrs+" hr ago";
+  const days = Math.round(hrs/24);
+  return days+" day"+(days===1?"":"s")+" ago";
+}
+
+function debounce(fn, wait){
+  return (...args)=>{ clearTimeout(autoSaveTimer); autoSaveTimer=setTimeout(()=>fn(...args), wait); };
+}
+
+async function autoSaveDraft(){
+  const form = collectForm();
+  if(!form.supplier){ return; } // nothing to key the record on yet
+  const computed = computeScores(form);
+  const identity = await resolveDraftIdentity(form);
+  const record = { id: identity.id, refNumber: identity.refNumber, supplier: form.supplier, product: form.product,
+                    notes: form.notes, proc: form.proc, qc: form.qc, computed, status: identity.status||"draft",
+                    updatedAt: Date.now() };
+  const indicator = document.getElementById("autosave-status");
+  try{
+    await saveEvaluation(record);
+    if(indicator) indicator.textContent = formatRefNumber(identity.refNumber)+" \u00b7 Draft saved \u00b7 " + new Date().toLocaleTimeString();
+  }catch(e){
+    if(indicator) indicator.textContent = "Autosave failed \u2014 see toast";
+  }
+}
+const debouncedAutoSave = debounce(autoSaveDraft, 700);
+
+function wireNewView(editing){
+  currentDraftId = (editing && editing.id) ? editing.id : null;
+  currentDraftStatus = (editing && editing.status) ? editing.status : null;
+  currentDraftRefNumber = (editing && editing.refNumber) ? editing.refNumber : null;
+  if(editing){ fillFormFields(editing); }
+
+  document.querySelectorAll("#main input, #main select, #main textarea").forEach(el=>{
+    el.addEventListener("input", debouncedAutoSave);
+    el.addEventListener("change", debouncedAutoSave);
+  });
+
+  document.getElementById("btn-preview").addEventListener("click", ()=>{
+    const form = collectForm();
+    const computed = computeScores(form);
+    document.getElementById("preview-box").innerHTML = renderPreview(form, computed);
+  });
+
+  document.getElementById("btn-save").addEventListener("click", async (ev)=>{
+    const btn = ev.currentTarget;
+    clearTimeout(autoSaveTimer); // don't let a pending debounced draft-save race the submit
+    const form = collectForm();
+    if(!form.supplier){ showToast("Enter a supplier name before submitting."); return; }
+    const computed = computeScores(form);
+    const identity = await resolveDraftIdentity(form);
+    currentDraftStatus = "submitted";
+    const record = { id: identity.id, refNumber: identity.refNumber, supplier: form.supplier, product: form.product,
+                      notes: form.notes, proc: form.proc, qc: form.qc, computed, status: "submitted",
+                      updatedAt: Date.now() };
+    btn.disabled = true; btn.textContent = "Submitting\u2026";
+    try{
+      await saveEvaluation(record);
+      const productKey = (form.product||"").trim().toLowerCase();
+      const submittedForProduct = productKey
+        ? (await listEvaluations()).filter(e => e.status==="submitted" && (e.product||"").trim().toLowerCase()===productKey)
+        : [];
+      let msg = `${formatRefNumber(identity.refNumber)} submitted` + (storageMode==="memory" ? " (this session only \u2014 export to keep it)." : ".");
+      if(submittedForProduct.length>=2){
+        msg += ` Comparison for "${form.product.trim()}" is ready \u2014 ${submittedForProduct.length} suppliers submitted. See By Product.`;
+      }
+      showToast(msg);
+      editingRecord = null;
+      currentView="byproduct"; setActiveNav(); render();
+    }catch(e){
+      editingRecord = null;
+      currentView="byproduct"; setActiveNav(); render();
+    }finally{
+      btn.disabled = false; btn.textContent = "Submit Evaluation";
+    }
+  });
+}
+
+function wireByProductView(){
+  document.querySelectorAll("[data-del]").forEach(btn=>{
+    btn.addEventListener("click", async ()=>{
+      await deleteEvaluation(btn.getAttribute("data-del"));
+      showToast("Evaluation deleted.");
+      render();
+    });
+  });
+  wireDetailAndExportButtons(id => lastByProductList.find(e=>e.id===id));
+  wireEditButtons(id => lastByProductList.find(e=>e.id===id));
+  document.querySelectorAll("[data-compare]").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const idx = btn.getAttribute("data-compare");
+      const count = btn.getAttribute("data-count");
+      const box = document.querySelector(`[data-compare-container="${CSS.escape(idx)}"]`);
+      if(!box) return;
+      const show = box.style.display==="none" || !box.style.display;
+      box.style.display = show ? "block" : "none";
+      btn.textContent = show ? "Hide Comparison" : `Compare (${count} suppliers)`;
+    });
+  });
+  document.querySelectorAll("[data-save-compare]").forEach(btn=>{
+    btn.addEventListener("click", async ()=>{
+      const idx = btn.getAttribute("data-save-compare");
+      const grp = compareGroupsByIdx[idx];
+      if(!grp){ showToast("Couldn't find that comparison \u2014 try refreshing."); return; }
+      const record = await saveComparisonRecord(grp.label, grp.submitted);
+      exportComparisonRecord(record);
+      showToast("Comparison result saved \u2014 logged in History and downloaded.");
+    });
+  });
+  document.querySelectorAll("[data-add-supplier]").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const idx = btn.getAttribute("data-add-supplier");
+      const label = groupLabelsByIdx[idx];
+      startNewForProduct(label && label!=="(No product specified)" ? label : "");
+    });
+  });
+  const exportBtn = document.getElementById("btn-export");
+  if(exportBtn) exportBtn.addEventListener("click", async ()=>{
+    const evals = await listEvaluations();
+    if(!evals.length){ showToast("Nothing to export yet."); return; }
+    exportAll(evals);
+    showToast("Exported "+evals.length+" evaluation"+(evals.length===1?"":"s")+".");
+  });
+  const importInput = document.getElementById("file-import");
+  if(importInput) importInput.addEventListener("change", async (e)=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    await importAll(file);
+    render();
+  });
+}
+
+function setActiveNav(){
+  document.querySelectorAll("nav.side button").forEach(b=>{
+    b.classList.toggle("active", b.getAttribute("data-view")===currentView);
+  });
+}
+
+document.querySelectorAll("nav.side button").forEach(btn=>{
+  btn.addEventListener("click", ()=>{
+    currentView = btn.getAttribute("data-view");
+    if(currentView==="new") editingRecord=null; // fresh blank form unless opened via Resume
+    setActiveNav();
+    render();
+  });
+});
+
+function showToast(msg){
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  const duration = Math.min(7000, Math.max(2400, msg.length*45));
+  clearTimeout(t._hideTimer);
+  t._hideTimer = setTimeout(()=>t.classList.remove("show"), duration);
+}
+
+(async function init(){
+  await probeStorage();
+  if(storageMode==="memory"){
+    showToast("Running without persistent save this session \u2014 see the note in History.");
+  }
+  render();
+})();
+</script>
+</body>
+</html>
