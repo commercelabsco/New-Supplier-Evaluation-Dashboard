@@ -19,9 +19,14 @@ Sheet.
    ```
    and replace the placeholder with the URL from step 5.
 
-The script creates two tabs on first use, `Evaluations` and `Comparisons`,
-each with a `data` column holding the full JSON record (so no field is
+The script writes evaluations into a tab named `data` (created
+automatically if missing) and comparisons into a `Comparisons` tab. Each
+row has a `data` column holding the full JSON record (so no field is
 lost) plus a few readable columns for browsing the Sheet directly.
+
+If your `data` tab already has rows in it from something else, clear it
+first (or rename it) so the script's header row and column layout don't
+collide with existing content.
 
 ## Redeploying after editing Code.gs
 

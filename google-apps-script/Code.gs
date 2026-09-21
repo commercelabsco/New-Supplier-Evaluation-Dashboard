@@ -18,6 +18,7 @@
  * looking at the Sheet directly.
  */
 
+var EVAL_SHEET_NAME = "data";
 var EVAL_HEADERS = ["id", "refNumber", "supplier", "product", "status", "totalScore", "rating", "updatedAt", "data"];
 var COMPARISON_HEADERS = ["id", "product", "savedAt", "bestSupplier", "bestScore", "data"];
 
@@ -66,7 +67,7 @@ function doGet(e) {
     sh = getSheet_("Comparisons", COMPARISON_HEADERS);
     headers = COMPARISON_HEADERS;
   } else {
-    sh = getSheet_("Evaluations", EVAL_HEADERS);
+    sh = getSheet_(EVAL_SHEET_NAME, EVAL_HEADERS);
     headers = EVAL_HEADERS;
   }
   var values = sh.getDataRange().getValues();
@@ -108,7 +109,7 @@ function doPost(e) {
     sh = getSheet_("Comparisons", COMPARISON_HEADERS);
     headers = COMPARISON_HEADERS;
   } else {
-    sh = getSheet_("Evaluations", EVAL_HEADERS);
+    sh = getSheet_(EVAL_SHEET_NAME, EVAL_HEADERS);
     headers = EVAL_HEADERS;
   }
 
