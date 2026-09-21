@@ -517,7 +517,7 @@ function selectField(labelText, options, name, extraNote){
 }
 
 function renderNew(editing){
-  let title = "New Supplier Evaluation";
+  let title = "New Supplier Evaluation Gino";
   if(editing && editing.id){
     const ref = editing.refNumber ? formatRefNumber(editing.refNumber)+" \u2014 " : "";
     title = ref + (editing.status==="submitted" ? "Editing \u2014 " : "Resuming Draft \u2014 ") + escapeHtml(editing.supplier||"");
