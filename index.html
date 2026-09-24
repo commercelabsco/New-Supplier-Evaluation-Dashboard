@@ -180,26 +180,54 @@ const PERFORMANCE_QC_KEYS = ["responsivenessResolution","productQuality","coaTur
 
 /* ============================================================
    STORAGE
-   Persistent storage (window.storage) only works when this file is
-   rendered live inside Claude's artifact preview. If it's opened as a
-   plain downloaded file, or the API isn't available for any other
-   reason, we fall back to an in-memory store for the current session
-   and rely on Export/Import to carry data across sessions instead.
+   Data is persisted in a Google Sheet via a small Apps Script Web App
+   bound to that sheet (see google-apps-script/Code.gs) so every user,
+   from any device/location, reads and writes the same shared data.
+   Set SHEET_WEBAPP_URL below to that deployment's URL \u2014 it MUST be
+   deployed with "Who has access: Anyone" (not restricted to a Google
+   Workspace domain), otherwise browsers that aren't logged into that
+   domain get an HTML login page back instead of JSON and silently
+   fall back to memory-only mode. See google-apps-script/README.md.
+   If the URL is unset/unreachable, we fall back to an in-memory store
+   for the current session only and rely on Export/Import to carry
+   data across sessions instead.
    ============================================================ */
-let storageMode = "unknown"; // "persistent" | "memory"
+const SHEET_WEBAPP_URL = "PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE";
+let storageMode = "unknown"; // "sheet" | "memory"
 let memoryDB = {};
+
+async function parseSheetResponse_(res){
+  if(!res.ok) throw new Error("HTTP "+res.status);
+  const text = await res.text();
+  try{ return JSON.parse(text); }
+  catch(e){
+    // Apps Script returns an HTML login/redirect page (not JSON) when the
+    // deployment is restricted to a Workspace domain and the visitor isn't
+    // logged into that domain in this browser \u2014 the #1 cause of "works for
+    // me, not for my coworker". Surface that clearly instead of a vague
+    // JSON-parse error.
+    if(/<html/i.test(text)){
+      throw new Error("Sheet returned a login page, not data \u2014 the Apps Script deployment is probably restricted to a Google Workspace domain. Redeploy with \"Who has access: Anyone\".");
+    }
+    throw new Error("Sheet returned an unexpected response: "+text.slice(0,120));
+  }
+}
+async function postToSheet_(payload){
+  const res = await fetch(SHEET_WEBAPP_URL, { method:"POST", body: JSON.stringify(payload) });
+  return parseSheetResponse_(res);
+}
+async function getFromSheet_(type){
+  const res = await fetch(SHEET_WEBAPP_URL+"?type="+type);
+  return parseSheetResponse_(res);
+}
 
 async function probeStorage(){
   try{
-    if(typeof window.storage === "undefined") throw new Error("window.storage not available");
-    const testKey = "__probe__"+Date.now();
-    await window.storage.set(testKey, "1", true);
-    const readBack = await window.storage.get(testKey, true);
-    await window.storage.delete(testKey, true);
-    if(!readBack || readBack.value !== "1") throw new Error("storage probe read-back failed");
-    storageMode = "persistent";
+    if(!SHEET_WEBAPP_URL || SHEET_WEBAPP_URL.indexOf("PASTE_")===0) throw new Error("SHEET_WEBAPP_URL not configured");
+    await getFromSheet_("evaluations");
+    storageMode = "sheet";
   }catch(e){
-    console.warn("Persistent storage unavailable, using in-memory fallback:", e);
+    console.warn("Google Sheet sync unavailable, using in-memory fallback:", e);
     storageMode = "memory";
   }
 }
@@ -209,38 +237,30 @@ async function listEvaluations(){
     return Object.values(memoryDB).sort((a,b)=> (b.computed?.totalScore ?? -1) - (a.computed?.totalScore ?? -1));
   }
   try{
-    const keys = await window.storage.list("evaluation:", true);
-    if(!keys || !keys.keys) return [];
-    const out=[];
-    for(const k of keys.keys){
-      try{
-        const res = await window.storage.get(k, true);
-        if(res && res.value) out.push(JSON.parse(res.value));
-      }catch(e){ /* skip unreadable */ }
-    }
+    const out = await getFromSheet_("evaluations");
     out.sort((a,b)=> (b.computed?.totalScore ?? -1) - (a.computed?.totalScore ?? -1));
     return out;
   }catch(e){
     console.error("listEvaluations failed:", e);
-    showToast("Couldn't load history: "+e.message);
+    showToast("Couldn't load from the Sheet: "+e.message);
     return Object.values(memoryDB);
   }
 }
 async function saveEvaluation(record){
   if(storageMode==="memory"){ memoryDB[record.id]=record; return; }
   try{
-    await window.storage.set("evaluation:"+record.id, JSON.stringify(record), true);
+    await postToSheet_({action:"save", type:"evaluation", record});
   }catch(e){
     console.error("saveEvaluation failed:", e);
-    memoryDB[record.id]=record; // don't lose the entry even if persistent save failed
-    showToast("Persistent save failed (\""+e.message+"\") \u2014 kept for this session only. Use Export to back it up.");
+    memoryDB[record.id]=record; // don't lose the entry even if the Sheet save failed
+    showToast("Sheet save failed (\""+e.message+"\") \u2014 kept for this session only. Use Export to back it up.");
     throw e;
   }
 }
 async function deleteEvaluation(id){
   delete memoryDB[id];
   if(storageMode==="memory") return;
-  try{ await window.storage.delete(id.startsWith?.("evaluation:")?id:"evaluation:"+id, true); }
+  try{ await postToSheet_({action:"delete", type:"evaluation", id}); }
   catch(e){ console.error("deleteEvaluation failed:", e); }
 }
 
@@ -255,13 +275,7 @@ async function listComparisons(){
     return Object.values(memoryComparisons).sort((a,b)=>(b.savedAt||0)-(a.savedAt||0));
   }
   try{
-    const keys = await window.storage.list("comparison:", true);
-    if(!keys || !keys.keys) return [];
-    const out=[];
-    for(const k of keys.keys){
-      try{ const res = await window.storage.get(k, true); if(res && res.value) out.push(JSON.parse(res.value)); }
-      catch(e){ /* skip unreadable */ }
-    }
+    const out = await getFromSheet_("comparisons");
     out.sort((a,b)=>(b.savedAt||0)-(a.savedAt||0));
     return out;
   }catch(e){
@@ -285,18 +299,18 @@ async function saveComparisonRecord(productLabel, suppliers){
     })),
   };
   if(storageMode==="memory"){ memoryComparisons[record.id]=record; return record; }
-  try{ await window.storage.set("comparison:"+record.id, JSON.stringify(record), true); }
+  try{ await postToSheet_({action:"save", type:"comparison", record}); }
   catch(e){
     console.error("saveComparisonRecord failed:", e);
     memoryComparisons[record.id]=record;
-    showToast("Comparison saved for this session only \u2014 persistent save failed.");
+    showToast("Comparison saved for this session only \u2014 Sheet save failed.");
   }
   return record;
 }
 async function deleteComparison(id){
   delete memoryComparisons[id];
   if(storageMode==="memory") return;
-  try{ await window.storage.delete(id.startsWith?.("comparison:")?id:"comparison:"+id, true); }
+  try{ await postToSheet_({action:"delete", type:"comparison", id}); }
   catch(e){ console.error("deleteComparison failed:", e); }
 }
 function exportAll(evals){
@@ -635,10 +649,10 @@ function renderPreview(form, computed){
    RENDER: History
    ============================================================ */
 function storageBanner(){
-  if(storageMode==="persistent") return "";
+  if(storageMode==="sheet") return "";
   return `<div class="panel" style="background:var(--gold-soft);border-color:var(--gold);">
-    <strong>Persistent save isn't available in this preview</strong>
-    <p class="hint" style="margin-top:6px;">Evaluations you add will stay visible for the rest of this session, but won't survive a refresh or be saved for next time. Use <strong>Export All</strong> below regularly to keep a backup file, and <strong>Import</strong> it back in next session.</p>
+    <strong>Google Sheet sync isn't available right now</strong>
+    <p class="hint" style="margin-top:6px;">Evaluations you add will stay visible for the rest of this session, but won't be saved to the Sheet or survive a refresh. Use <strong>Export All</strong> below regularly to keep a backup file, and <strong>Import</strong> it back in next session.</p>
   </div>`;
 }
 function exportImportBar(){
@@ -925,15 +939,13 @@ async function getNextRefNumber(){
     memoryRefCounter += 1;
     return memoryRefCounter;
   }
-  let current = 0;
   try{
-    const res = await window.storage.get("meta:evalCounter", true);
-    current = (res && res.value) ? parseInt(res.value, 10) || 0 : 0;
-  }catch(e){ current = memoryRefCounter; }
-  const next = current + 1;
-  try{ await window.storage.set("meta:evalCounter", String(next), true); }
-  catch(e){ memoryRefCounter = next; return next; }
-  return next;
+    const res = await postToSheet_({action:"nextRef"});
+    return res.next;
+  }catch(e){
+    memoryRefCounter += 1;
+    return memoryRefCounter;
+  }
 }
 function formatRefNumber(n){
   return n ? "EVAL-"+String(n).padStart(3,"0") : "\u2014";
@@ -1135,7 +1147,7 @@ function showToast(msg){
 (async function init(){
   await probeStorage();
   if(storageMode==="memory"){
-    showToast("Running without persistent save this session \u2014 see the note in History.");
+    showToast("Running without Google Sheet sync this session \u2014 see the note in History.");
   }
   render();
 })();
