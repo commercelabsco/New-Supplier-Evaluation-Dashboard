@@ -110,12 +110,18 @@ function deleteRow_(sh, id) {
   if (rowIdx > 0) sh.deleteRow(rowIdx);
 }
 
-/** GET ?type=evaluations | comparisons -> full JSON array of records. */
+/**
+ * GET ?type=evaluations | comparisons -> full JSON array of records.
+ * `e` is undefined when this is run manually from the Apps Script editor's
+ * "Run" button (there's no real HTTP request then) — that's expected and
+ * not a bug; it only needs to be a real GET, e.g. the deployed Web App URL
+ * opened in a browser, or Run > Run with e as {parameter:{type:"evaluations"}}.
+ */
 function doGet(e) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
-    var type = (e.parameter && e.parameter.type) || "evaluations";
+    var type = (e && e.parameter && e.parameter.type) || "evaluations";
     var sh, headers;
     if (type === "comparisons") {
       sh = getSheet_("Comparisons", COMPARISON_HEADERS);
@@ -151,11 +157,16 @@ function doGet(e) {
  * Wrapped in a script lock so two users saving at the same moment from
  * different locations can't race each other into a corrupted/duplicate
  * row or a skipped ref-number increment.
+ *
+ * Can't be tested with the editor's "Run" button — there's no real
+ * POST body then, so `e` is undefined. Test it from the dashboard itself
+ * (add/save an evaluation) or with a real POST request instead.
  */
 function doPost(e) {
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
+    if (!e || !e.postData) throw new Error("No POST body received — this endpoint needs a real POST request (e.g. from the dashboard), not the editor's Run button.");
     var body = JSON.parse(e.postData.contents);
     var action = body.action;
 
