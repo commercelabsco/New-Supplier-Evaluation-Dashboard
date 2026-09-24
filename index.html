@@ -968,26 +968,31 @@ async function getNextRefNumber(){
 function formatRefNumber(n){
   return n ? "EVAL-"+String(n).padStart(3,"0") : "\u2014";
 }
-// Resolves (and, for a genuinely new supplier+product pair, assigns) the
-// id/status/refNumber for the record currently being edited in "+ New
-// Evaluation" \u2014 shared by both autosave and Submit so they never disagree.
+// Resolves (and, for a brand-new form, assigns) the id/status/refNumber
+// for the record currently being edited in "+ New Evaluation" \u2014 shared
+// by both autosave and Submit so they never disagree.
+//
+// This used to also search existing evaluations for a matching
+// supplier+product name and silently reuse that record's id instead of
+// minting a new one. That search only ran on the FIRST autosave of the
+// session, which usually fires right after the Supplier field is typed
+// but before Product is \u2014 so it searched for {supplier, product:""},
+// almost never found a match, minted a new id, and then kept using that
+// same (wrong) id for the rest of the session even once Product was
+// filled in \u2014 producing a second row for the same supplier+product
+// instead of updating the existing one. Worse, when it DID match, it
+// would silently glue a brand-new evaluation into an old (possibly
+// already-submitted) record just because the names happened to line up.
+// A form only reuses an existing id now when it was explicitly opened via
+// Resume/Edit/"+ Add Supplier" (wireNewView sets currentDraftId directly
+// from that record) \u2014 a fresh blank form always gets its own new id.
 async function resolveDraftIdentity(form){
   if(currentDraftId){
     return { id: currentDraftId, status: currentDraftStatus, refNumber: currentDraftRefNumber };
   }
-  const existing = (await listEvaluations()).find(e =>
-    e.supplier.trim().toLowerCase()===form.supplier.trim().toLowerCase() &&
-    (e.product||"").trim().toLowerCase()===(form.product||"").trim().toLowerCase()
-  );
-  if(existing){
-    currentDraftId = existing.id;
-    currentDraftStatus = existing.status;
-    currentDraftRefNumber = existing.refNumber || null;
-  }else{
-    currentDraftId = Date.now()+"-"+Math.random().toString(36).slice(2,8);
-    currentDraftStatus = null;
-    currentDraftRefNumber = await getNextRefNumber();
-  }
+  currentDraftId = Date.now()+"-"+Math.random().toString(36).slice(2,8);
+  currentDraftStatus = null;
+  currentDraftRefNumber = await getNextRefNumber();
   return { id: currentDraftId, status: currentDraftStatus, refNumber: currentDraftRefNumber };
 }
 
