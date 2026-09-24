@@ -98,7 +98,7 @@
 <body>
 <div class="shell">
   <nav class="side">
-    <div class="brand">Weng<small>Procurement 70% + QC 30%</small></div>
+    <div class="brand">Supplier Evaluation<small>Procurement 70% + QC 30%</small></div>
     <button data-view="new" class="active">+ New Evaluation</button>
     <button data-view="ongoing">Ongoing</button>
     <button data-view="history">History</button>
@@ -549,7 +549,7 @@ function selectField(labelText, options, name, extraNote){
 }
 
 function renderNew(editing){
-  let title = "New Supplier Evaluation Gino";
+  let title = "New Supplier Evaluation";
   if(editing && editing.id){
     const ref = editing.refNumber ? formatRefNumber(editing.refNumber)+" \u2014 " : "";
     title = ref + (editing.status==="submitted" ? "Editing \u2014 " : "Resuming Draft \u2014 ") + escapeHtml(editing.supplier||"");
