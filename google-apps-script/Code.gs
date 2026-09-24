@@ -69,6 +69,17 @@ function getSheet_(name, headers) {
     sh = ss.insertSheet(name);
     sh.appendRow(headers);
     sh.setFrozenRows(1);
+    return sh;
+  }
+  // Self-heal an existing tab whose header row is missing, blank, or left
+  // over from an older version of EVAL_HEADERS/COMPARISON_HEADERS, instead
+  // of requiring the tab to be deleted by hand every time headers change.
+  // Only touches row 1 (labels) — never the data rows below it.
+  var firstRow = sh.getRange(1, 1, 1, headers.length).getValues()[0];
+  var matches = headers.every(function (h, i) { return firstRow[i] === h; });
+  if (!matches) {
+    sh.getRange(1, 1, 1, headers.length).setValues([headers]);
+    sh.setFrozenRows(1);
   }
   return sh;
 }
