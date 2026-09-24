@@ -67,5 +67,14 @@ Once the Apps Script is deployed with <strong>Anyone</strong> access and the res
 </ol>
 <p>Full setup steps are in <code>google-apps-script/README.md</code>.</p>
 
+<h2>Update — 2026-09-24: domain-restricted deployment confirmed broken, switched to public URL</h2>
+<p>The first live deployment used <strong>"Anyone within commercelabs.co"</strong> access on the assumption that, since every evaluator has a company Google account, that would be safe and would just require sign-in. Testing showed that assumption was wrong in a more fundamental way:</p>
+<div class="warn">
+A domain-restricted Apps Script Web App doesn't just require the visitor to be signed in — a <code>fetch()</code> call to it is <strong>blocked outright by CORS</strong> in every browser, for every visitor, signed in or not. The access-check step it redirects through doesn't send the <code>Access-Control-Allow-Origin</code> header a cross-origin <code>fetch()</code> needs, so the browser refuses to let the page's own JavaScript read the response. Confirmed via the browser console: <code>Access to fetch ... has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present</code>. The dashboard just silently dropped into memory-only mode with a vague "Google Sheet sync isn't available" toast — no indication of why.
+</div>
+<div class="ok">
+Redeployed with <strong>"Who has access: Anyone"</strong> (the plain, non-domain-restricted option). Its URL has no <code>/a/macros/&lt;domain&gt;/</code> segment (<code>https://script.google.com/macros/s/AKfycb.../exec</code>), executes directly, and its response carries the CORS headers <code>fetch()</code> needs — confirmed reachable with a plain HTTP request returning <code>200</code> and valid JSON. <code>SHEET_WEBAPP_URL</code> in <code>index.html</code> and the setup notes in <code>google-apps-script/README.md</code> were both updated to require this and explain why the domain-restricted option can't work here, so it isn't picked again by mistake.
+</div>
+
 </body>
 </html>

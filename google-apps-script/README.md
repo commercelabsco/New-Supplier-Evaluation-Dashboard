@@ -24,18 +24,29 @@ the first time it runs, with headers.
 2. Type: **Web app**.
 3. **Execute as:** Me (your account — this is what lets the script write
    to the Sheet on behalf of every visitor).
-4. **Who has access:** **Anyone**.
+4. **Who has access:** **Anyone**. This is not optional.
 
-   ⚠️ This is the step that broke the first attempt. If your Google
+   ⚠️ This is the step that broke the first two attempts. If your Google
    account is part of a company/Workspace domain, the dialog can quietly
    default to *"Anyone within [yourcompany.com]"* instead of *"Anyone"*.
-   A domain-restricted deployment only works for people currently signed
-   into a Google account on that same domain, in that same browser —
-   everyone else gets redirected to an HTML sign-in page instead of JSON,
-   and the dashboard silently falls back to session-only memory mode for
-   them (looks broken, no error shown). Pick **Anyone**, not the
-   domain-restricted option, so it works for every evaluator regardless
-   of which Google account (or no account at all) they're signed into.
+
+   It's tempting to pick the domain-restricted option thinking "everyone
+   here has a company account anyway" — but that doesn't just narrow who
+   can use it, **it breaks the dashboard for everyone, including people
+   signed into the right account**. The dashboard talks to this URL with
+   `fetch()`, and a domain-restricted deployment routes that request
+   through an access-check redirect that doesn't send CORS headers back.
+   The browser then refuses to let the page's JavaScript read the
+   response at all — not "shows a login page", but an outright
+   `Access to fetch ... has been blocked by CORS policy` error in the
+   console, no matter who's signed in or how. The dashboard just falls
+   back to session-only memory mode with a vague toast ("Google Sheet
+   sync isn't available").
+
+   The plain **Anyone** deployment doesn't have this problem: it
+   executes directly and its response carries the CORS headers `fetch()`
+   needs, so it works from any browser, account, or device — signed in
+   or not.
 
 5. Click **Deploy**, authorize the requested permissions, and copy the
    Web App URL it gives you. It should look like:
