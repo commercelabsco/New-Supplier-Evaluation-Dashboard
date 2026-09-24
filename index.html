@@ -183,16 +183,22 @@ const PERFORMANCE_QC_KEYS = ["responsivenessResolution","productQuality","coaTur
    Data is persisted in a Google Sheet via a small Apps Script Web App
    bound to that sheet (see google-apps-script/Code.gs) so every user,
    from any device/location, reads and writes the same shared data.
-   Set SHEET_WEBAPP_URL below to that deployment's URL \u2014 it MUST be
-   deployed with "Who has access: Anyone" (not restricted to a Google
-   Workspace domain), otherwise browsers that aren't logged into that
-   domain get an HTML login page back instead of JSON and silently
-   fall back to memory-only mode. See google-apps-script/README.md.
+   NOTE: this deployment is intentionally restricted to
+   "Anyone within commercelabs.co" (a domain-restricted Web App URL,
+   .../a/macros/commercelabs.co/s/.../exec) rather than the fully-open
+   "Anyone" option \u2014 this only works because every evaluator is
+   expected to be signed into their commercelabs.co Google account in
+   the browser they use to open this page. If any evaluator ever needs
+   to use a personal Google account, a different browser profile, or no
+   Google sign-in at all, they'll get an HTML sign-in page back instead
+   of data and the app will silently fall back to memory-only mode for
+   them \u2014 in that case, redeploy with "Who has access: Anyone" instead.
+   See google-apps-script/README.md for redeploy steps.
    If the URL is unset/unreachable, we fall back to an in-memory store
    for the current session only and rely on Export/Import to carry
    data across sessions instead.
    ============================================================ */
-const SHEET_WEBAPP_URL = "PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE";
+const SHEET_WEBAPP_URL = "https://script.google.com/a/macros/commercelabs.co/s/AKfycbwgViCVWtG2mUUPPnsXxLNoKx5vkuLyUqlwlWC_RZkRmxT9N70pBZlW4jZqRY1SN0St9w/exec";
 let storageMode = "unknown"; // "sheet" | "memory"
 let memoryDB = {};
 
