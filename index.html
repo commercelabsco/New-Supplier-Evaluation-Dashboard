@@ -369,6 +369,20 @@ function labelFor(list, idx){
   const v = list[Number(idx)];
   return v===undefined ? "Not answered" : v;
 }
+// Plain-text version of every answer, one key per Sheet column, so the
+// Google Sheet reads as a normal spreadsheet (one question = one column)
+// instead of everything buried inside the "data" JSON blob.
+function readableAnswers(form){
+  const p = form.proc||{}, q = form.qc||{};
+  const out = { productCost: p.actualCost ? `$${p.actualCost}/unit` : "" };
+  out.netTerms = labelFor(OPTS.netTerms, p.netTerms);
+  out.deposit = labelFor(OPTS.deposit, p.deposit);
+  out.credit = labelFor(OPTS.credit, p.credit);
+  out.moq = labelFor(OPTS.moq, p.moq);
+  out.leadTime = labelFor(OPTS.leadTime, p.leadTime);
+  QC_FIELDS.forEach(f => out[f.key] = labelFor(f.options, q[f.key]));
+  return out;
+}
 function detailRow(label, val){
   return `<div class="rowlabel" style="font-weight:400;">${escapeHtml(label)}</div><div class="cell">${escapeHtml(val)}</div>`;
 }
@@ -1007,8 +1021,8 @@ async function autoSaveDraft(){
   const computed = computeScores(form);
   const identity = await resolveDraftIdentity(form);
   const record = { id: identity.id, refNumber: identity.refNumber, supplier: form.supplier, product: form.product,
-                    notes: form.notes, proc: form.proc, qc: form.qc, computed, status: identity.status||"draft",
-                    updatedAt: Date.now() };
+                    notes: form.notes, proc: form.proc, qc: form.qc, answers: readableAnswers(form), computed,
+                    status: identity.status||"draft", updatedAt: Date.now() };
   const indicator = document.getElementById("autosave-status");
   try{
     await saveEvaluation(record);
@@ -1045,8 +1059,8 @@ function wireNewView(editing){
     const identity = await resolveDraftIdentity(form);
     currentDraftStatus = "submitted";
     const record = { id: identity.id, refNumber: identity.refNumber, supplier: form.supplier, product: form.product,
-                      notes: form.notes, proc: form.proc, qc: form.qc, computed, status: "submitted",
-                      updatedAt: Date.now() };
+                      notes: form.notes, proc: form.proc, qc: form.qc, answers: readableAnswers(form), computed,
+                      status: "submitted", updatedAt: Date.now() };
     btn.disabled = true; btn.textContent = "Submitting\u2026";
     try{
       await saveEvaluation(record);

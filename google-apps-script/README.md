@@ -93,3 +93,18 @@ between sessions manually.
 Two people saving at the same moment (from different locations) are
 serialized with `LockService` in `Code.gs`, so writes can't race each
 other into a corrupted row or a duplicate/skipped ref number.
+
+## Sheet columns
+
+Every question has its own column in the `data` tab (Product Cost, Net
+Terms, MOQ, GMP status, etc.), so the Sheet reads like a normal
+spreadsheet instead of one giant JSON blob per row. The last column,
+`data`, still holds the full JSON record — that's what the dashboard
+itself reads back, so it never loses a field even before this script is
+updated to add a column for some new question. Don't delete or reorder
+the `data` column.
+
+If you change `EVAL_HEADERS` in `Code.gs` (e.g. to add a new column),
+delete the `data` tab in the Sheet (or clear its header row) so it gets
+recreated with the new headers — the script only writes headers the
+first time a tab is created, it won't retrofit an existing one.

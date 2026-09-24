@@ -29,14 +29,22 @@
  * Deploy -> Manage deployments -> edit (pencil) -> change "Who has
  * access" to "Anyone" -> Deploy again, and use the URL it gives you.
  *
- * Data model: each row's "data" column holds the full JSON record, so
- * the dashboard round-trips every field (including nested QC/procurement
- * answers) without loss. The other columns are just for readability when
- * looking at the Sheet directly.
+ * Data model: every question has its own column (so the Sheet reads like
+ * a normal spreadsheet), and the last column, "data", holds the full JSON
+ * record so the dashboard round-trips every field without loss even if a
+ * new question is added on the app side before this script is updated to
+ * match. If you change EVAL_HEADERS, delete the existing "data" tab (or
+ * clear its header row) so it gets recreated with the new columns —
+ * this script only writes headers the first time a tab is created.
  */
 
 var EVAL_SHEET_NAME = "data";
-var EVAL_HEADERS = ["id", "refNumber", "supplier", "product", "status", "totalScore", "rating", "updatedAt", "data"];
+var EVAL_HEADERS = [
+  "id", "refNumber", "supplier", "product", "status", "totalScore", "rating", "updatedAt",
+  "productCost", "netTerms", "deposit", "credit", "moq", "leadTime",
+  "testingCapacity", "gmpMatch", "responsivenessResolution", "productQuality", "coaTurnaround", "labelReviewer",
+  "notes", "data",
+];
 var COMPARISON_HEADERS = ["id", "product", "savedAt", "bestSupplier", "bestScore", "data"];
 
 function getSheet_(name, headers) {
@@ -160,6 +168,7 @@ function doPost(e) {
         JSON.stringify(record),
       ];
     } else {
+      var a = record.answers || {};
       row = [
         record.id,
         record.refNumber || "",
@@ -169,6 +178,19 @@ function doPost(e) {
         record.computed && record.computed.totalScore != null ? record.computed.totalScore : "",
         record.computed ? record.computed.rating || "" : "",
         record.updatedAt || "",
+        a.productCost || "",
+        a.netTerms || "",
+        a.deposit || "",
+        a.credit || "",
+        a.moq || "",
+        a.leadTime || "",
+        a.testingCapacity || "",
+        a.gmpMatch || "",
+        a.responsivenessResolution || "",
+        a.productQuality || "",
+        a.coaTurnaround || "",
+        a.labelReviewer || "",
+        record.notes || "",
         JSON.stringify(record),
       ];
     }
