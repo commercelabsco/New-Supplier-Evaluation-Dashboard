@@ -29,23 +29,33 @@
  * Deploy -> Manage deployments -> edit (pencil) -> change "Who has
  * access" to "Anyone" -> Deploy again, and use the URL it gives you.
  *
- * Data model: every question has its own column (so the Sheet reads like
- * a normal spreadsheet), and the last column, "data", holds the full JSON
- * record so the dashboard round-trips every field without loss even if a
- * new question is added on the app side before this script is updated to
- * match. If you change EVAL_HEADERS, delete the existing "data" tab (or
- * clear its header row) so it gets recreated with the new columns —
- * this script only writes headers the first time a tab is created.
+ * Data model: every question has its own column, titled exactly like the
+ * question on the form (e.g. "Product Cost (Turnkey)"), so the Sheet
+ * reads like a normal spreadsheet. The last column, "Full Record (JSON —
+ * do not edit)", holds the complete JSON record so the dashboard
+ * round-trips every field without loss even if a new question is added
+ * on the app side before this script is updated to match — don't rename,
+ * move, or hand-edit that column. If you change EVAL_HEADERS, delete the
+ * existing "data" tab (or clear its header row) so it gets recreated
+ * with the new columns — this script only writes headers the first time
+ * a tab is created.
  */
 
 var EVAL_SHEET_NAME = "data";
+// Same order the dashboard's own form uses (see index.html's "Section A"
+// and "Section B" headings) so the column titles read exactly like the
+// questions being asked. The last column always holds the full JSON
+// record, whatever it's titled — doGet()/doPost() address it by
+// position (headers.length - 1), never by matching this title text.
 var EVAL_HEADERS = [
-  "id", "refNumber", "supplier", "product", "status", "totalScore", "rating", "updatedAt",
-  "productCost", "netTerms", "deposit", "credit", "moq", "leadTime",
-  "testingCapacity", "gmpMatch", "responsivenessResolution", "productQuality", "coaTurnaround", "labelReviewer",
-  "notes", "data",
+  "ID", "Ref #", "Supplier / Company Name", "Product / Spec Being Quoted", "Status", "Total Score", "Rating", "Last Updated",
+  "Product Cost (Turnkey)", "Payment Terms — Net Terms", "Payment Terms — Deposit", "Payment Terms — Credit Limit",
+  "Minimum Order Quantity (MOQ)", "Lead Time (PO issuance to ship-ready)",
+  "Testing Capacity", "GMP Certification & Regulatory Compliance", "Responsiveness & Issue Resolution",
+  "Product Quality History (12 mo)", "COA Turnaround", "Label Reviewer / Regulatory Label Review",
+  "Notes", "Full Record (JSON — do not edit)",
 ];
-var COMPARISON_HEADERS = ["id", "product", "savedAt", "bestSupplier", "bestScore", "data"];
+var COMPARISON_HEADERS = ["ID", "Product", "Saved At", "Best Supplier", "Best Score", "Full Record (JSON — do not edit)"];
 
 function getSheet_(name, headers) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -100,7 +110,7 @@ function doGet(e) {
     }
     var values = sh.getDataRange().getValues();
     values.shift(); // header row
-    var dataIdx = headers.indexOf("data");
+    var dataIdx = headers.length - 1; // the full-JSON column is always last
     var out = [];
     values.forEach(function (r) {
       if (!r[0]) return;
