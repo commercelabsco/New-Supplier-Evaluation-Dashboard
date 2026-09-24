@@ -42,16 +42,21 @@
  */
 
 var EVAL_SHEET_NAME = "data";
-// Same order the dashboard's own form uses (see index.html's "Section A"
-// and "Section B" headings) so the column titles read exactly like the
-// questions being asked. The last column always holds the full JSON
+// These titles are typed by hand to match index.html's own field labels
+// word-for-word (Supplier Details / Section A / Section B / QC_FIELDS
+// around index.html:166-179, 564-593) — Apps Script can't import from
+// index.html, so there's no single source of truth; if a question's
+// wording changes in the form, update the matching entry here too, or
+// the Sheet header will silently drift out of sync with what evaluators
+// actually saw on screen. The last column always holds the full JSON
 // record, whatever it's titled — doGet()/doPost() address it by
 // position (headers.length - 1), never by matching this title text.
 var EVAL_HEADERS = [
   "ID", "Ref #", "Supplier / Company Name", "Product / Spec Being Quoted", "Status", "Total Score", "Rating", "Last Updated",
-  "Product Cost (Turnkey)", "Payment Terms — Net Terms", "Payment Terms — Deposit", "Payment Terms — Credit Limit",
+  "Product Cost (Turnkey)", "Payment Terms — Net Terms", "Payment Terms — Deposit Required", "Payment Terms — Credit Limit",
   "Minimum Order Quantity (MOQ)", "Lead Time (PO issuance to ship-ready)",
-  "Testing Capacity", "GMP Certification & Regulatory Compliance", "Responsiveness & Issue Resolution",
+  "Testing Capacity", "GMP Certification & Regulatory Compliance",
+  "Responsiveness & Issue Resolution (queries, document requests — e.g. GMP cert, SDS — and non-quality issues)",
   "Product Quality History (12 mo)", "COA Turnaround", "Label Reviewer / Regulatory Label Review",
   "Notes", "Full Record (JSON — do not edit)",
 ];
