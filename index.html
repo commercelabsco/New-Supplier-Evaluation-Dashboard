@@ -356,7 +356,7 @@ async function saveEvaluation(record){
   }catch(e){
     console.error("saveEvaluation failed:", e);
     memoryDB[record.id]=record; // don't lose the entry even if persistent save failed
-    showToast("Persistent save failed (\""+e.message+"\") — kept for this session only. Use Export to back it up.");
+    showToast("Persistent save failed (\""+e.message+"\") — kept for this session only. Use Download all (PDF) to keep a copy.");
     throw e;
   }
 }
@@ -427,31 +427,17 @@ async function deleteComparison(id){
   try{ await window.storage.delete(id.startsWith?.("comparison:")?id:"comparison:"+id, true); }
   catch(e){ console.error("deleteComparison failed:", e); }
 }
+// One PDF with every evaluation, each starting on its own page.
 function exportAll(evals){
-  const blob = new Blob([JSON.stringify(evals, null, 2)], {type:"application/json"});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url; a.download = "supplier-evaluations-export.json";
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  setTimeout(()=>URL.revokeObjectURL(url), 1500);
-}
-async function importAll(file){
-  const text = await file.text();
-  let records;
-  try{ records = JSON.parse(text); }
-  catch(e){ showToast("That file isn't valid JSON."); return; }
-  if(!Array.isArray(records)){ showToast("Expected a JSON array of evaluations."); return; }
-  let count=0, maxRef=0;
-  for(let r of records){
-    if(!r.id || !r.supplier) continue;
-    r.proc = r.proc||{}; r.qc = r.qc||{};
-    r = migrateRecord(r);
-    r.computed = computeScores(r); // recompute so imported files always match the current scoring model
-    if(r.refNumber) maxRef = Math.max(maxRef, Number(r.refNumber)||0);
-    try{ await saveEvaluation(r); count++; } catch(e){ /* already logged/toasted */ }
-  }
-  await bumpRefCounter(maxRef);
-  showToast(`Imported ${count} evaluation${count===1?"":"s"}.`);
+  const sorted = evals.slice().sort((a,b)=>(a.refNumber||0)-(b.refNumber||0));
+  const downloaded = savedOnText(Date.now());
+  const body = sorted.map((e,i)=>`<div style="${i?"page-break-before:always;":""}">
+      <h2 style="font-family:var(--serif);font-size:18px;margin:0 0 4px;">${escapeHtml(formatRefNumber(e.refNumber)+" \u2014 "+e.supplier)}</h2>
+      <p class="sub" style="margin-bottom:12px;">${escapeHtml((e.product||"(No product specified)")+" \u00b7 "+(e.status==="submitted"?"Submitted":"Draft (Ongoing)")+" \u00b7 Last saved "+savedOnText(e.updatedAt)+" \u00b7 Page "+(i+1)+" of "+sorted.length+", downloaded "+downloaded)}</p>
+      ${renderPreview(e, e.computed)}${renderDetailBreakdown(e)}
+    </div>`).join("");
+  // No overall title: each evaluation carries its own header so it fits one page.
+  downloadPdf("", "", body, "Supplier_Evaluations_"+new Date().toISOString().slice(0,10));
 }
 /* ---- PDF downloads (html2pdf.js, loaded on first use) ---- */
 let pdfLibPromise = null;
@@ -472,7 +458,7 @@ async function downloadPdf(title, subtitle, bodyHtml, filename, compact){
     const sheet = document.createElement("div");
     sheet.className = "pdf-sheet";
     if(compact) sheet.classList.add("compact"); // tighter rows so a comparison fits one page
-    sheet.innerHTML = `<h1>${escapeHtml(title)}</h1><p class="sub" style="margin-bottom:18px;">${escapeHtml(subtitle)}</p>${bodyHtml}`;
+    sheet.innerHTML = (title ? `<h1>${escapeHtml(title)}</h1><p class="sub" style="margin-bottom:18px;">${escapeHtml(subtitle)}</p>` : "") + bodyHtml;
     await html2pdf().set({
       margin: 8,
       filename: filename.replace(/[^\w.-]+/g,"_")+".pdf",
@@ -797,15 +783,12 @@ function storageBanner(){
   if(storageMode==="persistent") return "";
   return `<div class="panel" style="background:var(--gold-soft);border-color:var(--gold);">
     <strong>Persistent save isn't available in this preview</strong>
-    <p class="hint" style="margin-top:6px;">Evaluations you add will stay visible for the rest of this session, but won't survive a refresh or be saved for next time. Use <strong>Export All</strong> regularly to keep a backup file, and <strong>Import</strong> it back in next session.</p>
+    <p class="hint" style="margin-top:6px;">Evaluations you add will stay visible for the rest of this session, but won't survive a refresh or be saved for next time. Use <strong>Download all (PDF)</strong> to keep a copy before you leave.</p>
   </div>`;
 }
 function exportImportBar(){
   return `<div class="actions-row" style="margin-bottom:18px;">
-    <button class="btn secondary" id="btn-export">Backup all data (.json)</button>
-    <label class="btn secondary" style="display:inline-block;">
-      Restore from backup<input type="file" id="file-import" accept="application/json" style="display:none;">
-    </label>
+    <button class="btn secondary" id="btn-export">Download all (PDF)</button>
   </div>`;
 }
 async function renderHistory(){
@@ -1109,18 +1092,6 @@ async function getNextRefNumber(){
   catch(e){ memoryRefCounter = next; return next; }
   return next;
 }
-async function bumpRefCounter(minValue){
-  if(!minValue) return;
-  memoryRefCounter = Math.max(memoryRefCounter, minValue);
-  if(storageMode==="memory") return;
-  try{
-    const res = await window.storage.get("meta:evalCounter", true);
-    const current = (res && res.value) ? parseInt(res.value,10)||0 : 0;
-    if(minValue>current) await window.storage.set("meta:evalCounter", String(minValue), true);
-  }catch(e){
-    try{ await window.storage.set("meta:evalCounter", String(minValue), true); }catch(_){}
-  }
-}
 function formatRefNumber(n){
   return n ? "EVAL-"+String(n).padStart(3,"0") : "—";
 }
@@ -1264,7 +1235,7 @@ function wireNewView(editing){
       const submittedForProduct = productKey
         ? (await listEvaluations()).filter(e => e.status==="submitted" && (e.product||"").trim().toLowerCase()===productKey)
         : [];
-      let msg = `${formatRefNumber(identity.refNumber)} submitted` + (storageMode==="memory" ? " (this session only — export to keep it)." : ".");
+      let msg = `${formatRefNumber(identity.refNumber)} submitted` + (storageMode==="memory" ? " (this session only — use Download all (PDF) to keep a copy)." : ".");
       if(submittedForProduct.length>=2){
         msg += ` Comparison for "${form.product.trim()}" is ready — ${submittedForProduct.length} suppliers submitted. See By Product.`;
       }
@@ -1273,7 +1244,7 @@ function wireNewView(editing){
       currentView="byproduct"; setActiveNav(); render();
     }catch(e){
       // Stay on the form so nothing is lost; the record is kept for this session and can be exported.
-      showToast("Submit didn't reach persistent storage (\""+(e&&e.message||e)+"\") — kept for this session. Try again or use Export All.");
+      showToast("Submit didn't reach persistent storage (\""+(e&&e.message||e)+"\") — kept for this session. Try again, or use Download all (PDF) to keep a copy.");
     }finally{
       submitting = false;
       if(btn.isConnected){ btn.disabled = false; btn.textContent = "Submit Evaluation"; }
@@ -1366,15 +1337,6 @@ function wireExportImport(){
     const evals = await listEvaluations();
     if(!evals.length){ showToast("Nothing to export yet."); return; }
     exportAll(evals);
-    showToast("Exported "+evals.length+" evaluation"+(evals.length===1?"":"s")+".");
-  });
-  const importInput = document.getElementById("file-import");
-  if(importInput) importInput.addEventListener("change", async (e)=>{
-    const file = e.target.files[0];
-    if(!file) return;
-    await importAll(file);
-    e.target.value = ""; // allow re-importing the same file
-    render();
   });
 }
 
@@ -1415,7 +1377,7 @@ function showToast(msg){
   if(window.storageReady) await window.storageReady;
   await probeStorage();
   if(storageMode==="memory"){
-    showToast("Running without persistent save this session — use Export All to keep a backup.");
+    showToast("Running without persistent save this session — use Download all (PDF) to keep a copy.");
   }
   render();
 })();
