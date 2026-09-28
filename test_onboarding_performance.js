@@ -77,7 +77,7 @@ const fs = require("fs");
 
   // --- Compare grid should show both rows for a new-vs-existing comparison ---
   goto("byproduct"); await new Promise(r => setTimeout(r, 200));
-  const compareBtn = doc.querySelector('[data-count="2"]');
+  const compareBtn = doc.querySelector('[data-compare]');
   compareBtn.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
   const mainHtml = doc.getElementById("main").innerHTML;
   console.log("Compare grid shows Onboarding Score row:", mainHtml.includes("Onboarding Score"));
