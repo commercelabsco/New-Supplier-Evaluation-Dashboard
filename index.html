@@ -1028,26 +1028,22 @@ async function bumpRefCounter(minValue){
 function formatRefNumber(n){
   return n ? "EVAL-"+String(n).padStart(3,"0") : "—";
 }
-// Resolves (and, for a genuinely new supplier+product pair, assigns) the
-// id/status/refNumber for the record currently being edited in "+ New
-// Evaluation" — shared by both autosave and Submit so they never disagree.
+// Resolves (and, for a brand-new form, assigns) the id/status/refNumber
+// for the record currently being edited in "+ New Evaluation" \u2014 shared
+// by both autosave and Submit so they never disagree.
+//
+// A form only reuses an existing id when it was explicitly opened via
+// Resume/Edit/"+ Add Supplier" (wireNewView sets currentDraftId directly
+// from that record). Matching by supplier+product name used to run on the
+// first autosave, usually before Product was typed, which produced
+// duplicate rows, or glued a new evaluation onto an old submitted one.
 async function resolveDraftIdentity(form){
   if(currentDraftId){
     return { id: currentDraftId, status: currentDraftStatus, refNumber: currentDraftRefNumber };
   }
-  const existing = (await listEvaluations()).find(e =>
-    e.supplier.trim().toLowerCase()===form.supplier.trim().toLowerCase() &&
-    (e.product||"").trim().toLowerCase()===(form.product||"").trim().toLowerCase()
-  );
-  if(existing){
-    currentDraftId = existing.id;
-    currentDraftStatus = existing.status;
-    currentDraftRefNumber = existing.refNumber || null;
-  }else{
-    currentDraftId = Date.now()+"-"+Math.random().toString(36).slice(2,8);
-    currentDraftStatus = null;
-    currentDraftRefNumber = await getNextRefNumber();
-  }
+  currentDraftId = Date.now()+"-"+Math.random().toString(36).slice(2,8);
+  currentDraftStatus = null;
+  currentDraftRefNumber = await getNextRefNumber();
   return { id: currentDraftId, status: currentDraftStatus, refNumber: currentDraftRefNumber };
 }
 
