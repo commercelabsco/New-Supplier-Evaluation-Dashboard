@@ -65,42 +65,49 @@ window.initStorage = async function(){
 };
 
 function showLogin(client){
+  const field = "width:100%;padding:10px;font-size:14px;border:1px solid var(--border,#DFE3E7);border-radius:6px;margin-bottom:12px;background:var(--field,#fff);color:var(--ink,#1C2B39);";
   const wrap = document.createElement("div");
   wrap.style.cssText = "position:fixed;inset:0;background:var(--bg,#F3F5F7);display:flex;align-items:center;justify-content:center;z-index:1000;padding:16px;";
   wrap.innerHTML = `
     <form style="background:var(--panel,#fff);border:1px solid var(--border,#DFE3E7);border-radius:8px;padding:28px;max-width:380px;width:100%;font-family:var(--sans,sans-serif);">
       <h2 style="margin:0 0 6px;font-family:var(--serif,serif);">Supplier Evaluation Dashboard</h2>
-      <p style="margin:0 0 18px;color:var(--ink-soft,#55606B);font-size:14px;">Sign in with your @${ALLOWED_EMAIL_DOMAIN} email. We'll send you a login link.</p>
-      <input type="email" required placeholder="you@${ALLOWED_EMAIL_DOMAIN}" style="width:100%;padding:10px;font-size:14px;border:1px solid var(--border,#DFE3E7);border-radius:6px;margin-bottom:12px;">
-      <button class="btn" type="submit" style="width:100%;">Send login link</button>
+      <p style="margin:0 0 18px;color:var(--ink-soft,#55606B);font-size:14px;">Sign in with your team username and password.</p>
+      <input name="user" type="text" required autocomplete="username" placeholder="Username or @${ALLOWED_EMAIL_DOMAIN} email" style="${field}">
+      <input name="pass" type="password" autocomplete="current-password" placeholder="Password" style="${field}">
+      <button class="btn" type="submit" style="width:100%;">Sign in</button>
       <p class="msg" style="margin:12px 0 0;font-size:13px;color:var(--ink-soft,#55606B);"></p>
+      <p style="margin:14px 0 0;font-size:12px;"><a href="#" class="magic" style="color:var(--accent,#2F6690);">Email me a login link instead</a></p>
     </form>`;
   document.body.appendChild(wrap);
-  const form = wrap.querySelector("form"), msg = wrap.querySelector(".msg"), input = wrap.querySelector("input");
+  const form = wrap.querySelector("form"), msg = wrap.querySelector(".msg"), btn = form.querySelector("button");
+  const userInput = form.querySelector("[name=user]"), passInput = form.querySelector("[name=pass]");
+  // A bare username like "supplierteam" means supplierteam@commercelabs.co.
+  const emailFrom = v => { v = v.trim().toLowerCase(); return v.includes("@") ? v : v+"@"+ALLOWED_EMAIL_DOMAIN; };
+
   form.addEventListener("submit", async ev=>{
     ev.preventDefault();
-    const email = input.value.trim().toLowerCase();
-    if(!email.endsWith("@"+ALLOWED_EMAIL_DOMAIN)){ msg.textContent = "Please use your @"+ALLOWED_EMAIL_DOMAIN+" email."; return; }
-    const btn = form.querySelector("button");
-    btn.disabled = true;
-    msg.textContent = "Sending…";
-    const { error } = await client.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + location.pathname } });
-    if(error){
-      btn.disabled = false;
-      msg.textContent = /after \d+ seconds/.test(error.message)
-        ? "A login link was already sent — check your inbox (and spam). You can request another in a minute."
-        : "Couldn't send link: "+error.message;
-      return;
-    }
-    msg.textContent = "Login link sent to "+email+" — check your inbox (and spam folder), then click the link.";
-    let left = 60;
-    btn.textContent = "Resend in "+left+"s";
-    const timer = setInterval(()=>{
-      left -= 1;
-      if(left<=0){ clearInterval(timer); btn.disabled = false; btn.textContent = "Resend login link"; }
-      else btn.textContent = "Resend in "+left+"s";
-    }, 1000);
+    const email = emailFrom(userInput.value);
+    if(!passInput.value){ msg.textContent = "Enter your password."; return; }
+    btn.disabled = true; msg.textContent = "Signing in…";
+    const { error } = await client.auth.signInWithPassword({ email, password: passInput.value });
+    btn.disabled = false;
+    if(error) msg.textContent = /invalid/i.test(error.message) ? "Wrong username or password." : "Couldn't sign in: "+error.message;
   });
+
+  const magic = form.querySelector(".magic");
+  magic.addEventListener("click", async ev=>{
+    ev.preventDefault();
+    if(magic.dataset.busy) return;
+    const email = emailFrom(userInput.value);
+    if(!userInput.value.trim() || !email.endsWith("@"+ALLOWED_EMAIL_DOMAIN)){ msg.textContent = "Type your @"+ALLOWED_EMAIL_DOMAIN+" email above first."; return; }
+    magic.dataset.busy = "1"; msg.textContent = "Sending…";
+    const { error } = await client.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + location.pathname } });
+    msg.textContent = error
+      ? (/after \d+ seconds/.test(error.message) ? "A login link was already sent — check your inbox (and spam)." : "Couldn't send link: "+error.message)
+      : "Login link sent to "+email+" — check your inbox (and spam folder).";
+    setTimeout(()=>{ delete magic.dataset.busy; }, 60000);
+  });
+
   client.auth.onAuthStateChange((event)=>{ if(event==="SIGNED_IN") location.reload(); });
 }
 
