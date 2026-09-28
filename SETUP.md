@@ -39,6 +39,12 @@ begin
   return next_val;
 end;
 $$;
+
+-- Give signed-in users access (needed when "Automatically expose new tables" is off).
+grant select, insert, update, delete on public.kv to authenticated;
+grant execute on function public.kv_increment(text) to authenticated;
+
+notify pgrst, 'reload schema';
 ```
 
 ## 2. Configure sign-in

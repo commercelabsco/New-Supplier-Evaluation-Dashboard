@@ -8,12 +8,12 @@
    URL and anon (public) key. Until they're filled in, window.storage is
    left undefined and the dashboard falls back to in-memory mode.
    ============================================================ */
-const SUPABASE_URL = "YOUR_SUPABASE_URL";           // e.g. https://abcd1234.supabase.co
-const SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY"; // Project Settings -> API -> anon public
+const SUPABASE_URL = "https://abqqovogbmpkodubkrdu.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_W5oJ15kbMcWqPmwIEa8E4A_PaZ3FaKR"; // Settings -> API Keys -> Publishable key (safe to be public)
 const ALLOWED_EMAIL_DOMAIN = "commercelabs.co";
 
 window.initStorage = async function(){
-  if(SUPABASE_URL.startsWith("YOUR_") || typeof supabase === "undefined") return;
+  if(SUPABASE_URL.startsWith("YOUR_") || SUPABASE_ANON_KEY.startsWith("YOUR_") || typeof supabase === "undefined") return;
 
   const client = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   const { data: { session } } = await client.auth.getSession();
