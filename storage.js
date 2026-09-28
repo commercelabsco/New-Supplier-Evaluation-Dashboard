@@ -81,9 +81,25 @@ function showLogin(client){
     ev.preventDefault();
     const email = input.value.trim().toLowerCase();
     if(!email.endsWith("@"+ALLOWED_EMAIL_DOMAIN)){ msg.textContent = "Please use your @"+ALLOWED_EMAIL_DOMAIN+" email."; return; }
+    const btn = form.querySelector("button");
+    btn.disabled = true;
     msg.textContent = "Sending…";
     const { error } = await client.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + location.pathname } });
-    msg.textContent = error ? "Couldn't send link: "+error.message : "Check your inbox for the login link.";
+    if(error){
+      btn.disabled = false;
+      msg.textContent = /after \d+ seconds/.test(error.message)
+        ? "A login link was already sent — check your inbox (and spam). You can request another in a minute."
+        : "Couldn't send link: "+error.message;
+      return;
+    }
+    msg.textContent = "Login link sent to "+email+" — check your inbox (and spam folder), then click the link.";
+    let left = 60;
+    btn.textContent = "Resend in "+left+"s";
+    const timer = setInterval(()=>{
+      left -= 1;
+      if(left<=0){ clearInterval(timer); btn.disabled = false; btn.textContent = "Resend login link"; }
+      else btn.textContent = "Resend in "+left+"s";
+    }, 1000);
   });
   client.auth.onAuthStateChange((event)=>{ if(event==="SIGNED_IN") location.reload(); });
 }
