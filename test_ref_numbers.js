@@ -19,6 +19,15 @@ const fs = require("fs");
   await new Promise(r => setTimeout(r, 200));
   const doc = window.document;
 
+  // Submitting now requires every question answered: fill anything still blank.
+  function fillRest(){
+    const cost = doc.getElementById("p-actualCost");
+    if(!cost.value){ cost.value = "5.00"; cost.dispatchEvent(new window.Event("input", { bubbles: true })); }
+    doc.querySelectorAll("#main select").forEach(sel=>{
+      if(sel.value===""){ sel.value = "0"; sel.dispatchEvent(new window.Event("change", { bubbles: true })); }
+    });
+  }
+
   function goto(view){
     const btn = Array.from(doc.querySelectorAll("nav.side button")).find(b => b.getAttribute("data-view") === view);
     btn.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
@@ -30,6 +39,7 @@ const fs = require("fs");
     doc.getElementById("f-product").dispatchEvent(new window.Event("input", { bubbles: true }));
     doc.getElementById("q-testingCapacity").value = val;
     doc.getElementById("q-testingCapacity").dispatchEvent(new window.Event("change", { bubbles: true }));
+    fillRest();
     doc.getElementById("btn-save").dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
   }
 

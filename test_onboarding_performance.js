@@ -19,6 +19,15 @@ const fs = require("fs");
   await new Promise(r => setTimeout(r, 200));
   const doc = window.document;
 
+  // Submitting now requires every question answered: fill anything still blank.
+  function fillRest(){
+    const cost = doc.getElementById("p-actualCost");
+    if(!cost.value){ cost.value = "5.00"; cost.dispatchEvent(new window.Event("input", { bubbles: true })); }
+    doc.querySelectorAll("#main select").forEach(sel=>{
+      if(sel.value===""){ sel.value = "0"; sel.dispatchEvent(new window.Event("change", { bubbles: true })); }
+    });
+  }
+
   function goto(view){
     const btn = Array.from(doc.querySelectorAll("nav.side button")).find(b => b.getAttribute("data-view") === view);
     btn.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
@@ -35,7 +44,11 @@ const fs = require("fs");
   doc.getElementById("q-gmpMatch").dispatchEvent(new window.Event("change", { bubbles: true }));
   doc.getElementById("q-labelReviewer").value = "0"; // score 5
   doc.getElementById("q-labelReviewer").dispatchEvent(new window.Event("change", { bubbles: true }));
-  // Deliberately leave responsivenessResolution, productQuality, coaTurnaround unanswered
+  // New supplier: no track record yet, so the performance questions are N/A (answered, not scored)
+  ["q-responsivenessResolution","q-productQuality","q-coaTurnaround"].forEach(id=>{
+    doc.getElementById(id).value = "na";
+    doc.getElementById(id).dispatchEvent(new window.Event("change", { bubbles: true }));
+  });
   doc.getElementById("btn-preview").dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
   await new Promise(r => setTimeout(r, 100));
 
@@ -46,7 +59,8 @@ const fs = require("fs");
     console.log("FAIL: new supplier with no track-record answers should show 'No track record yet'."); process.exit(1);
   }
 
-  doc.getElementById("btn-save").dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  fillRest();
+    doc.getElementById("btn-save").dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
   await new Promise(r => setTimeout(r, 300));
 
   const newSupplierRecord = Object.values(mockDb).map(v=>{try{return JSON.parse(v);}catch(e){return null;}}).find(r=>r && r.supplier==="Brand New Co");
@@ -65,7 +79,8 @@ const fs = require("fs");
     doc.getElementById(id).value = "1";
     doc.getElementById(id).dispatchEvent(new window.Event("change", { bubbles: true }));
   });
-  doc.getElementById("btn-save").dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  fillRest();
+    doc.getElementById("btn-save").dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
   await new Promise(r => setTimeout(r, 300));
 
   const existingSupplierRecord = Object.values(mockDb).map(v=>{try{return JSON.parse(v);}catch(e){return null;}}).find(r=>r && r.supplier==="Established Co");

@@ -115,6 +115,19 @@
   .completeness{font-size:12px;color:var(--ink-soft);margin-top:2px;}
   .table-wrap{overflow-x:auto;}
   .btn.confirming{background:var(--red);color:#fff;border-color:var(--red);}
+  .missing{border-color:var(--red)!important;box-shadow:0 0 0 1px var(--red);}
+  /* PDF exports always render in the light palette, whatever the viewer's theme. */
+  .pdf-sheet{
+    --ink:#1C2B39; --ink-soft:#55606B; --bg:#F3F5F7; --panel:#FFFFFF; --border:#DFE3E7;
+    --accent:#2F6690; --accent-soft:#EAF1F6; --gold:#96700C; --gold-soft:#FBF1DD;
+    --green:#3F7A4E; --green-soft:#EAF4EC; --red:#A83232; --red-soft:#FBEAEA;
+    --field:#FFFFFF; --row:#FAFBFC;
+    background:#fff;color:var(--ink);font-family:var(--sans);padding:24px 28px;width:1050px;
+  }
+  .pdf-sheet h1{font-size:22px;margin:0 0 4px;}
+  .pdf-sheet.compact .panel{padding:12px 18px;}
+  .pdf-sheet.compact .compare-grid .rowlabel,.pdf-sheet.compact .compare-grid .cell{padding:6px 8px;font-size:12.5px;}
+  .pdf-sheet.compact .compare-grid .colhead{padding:6px 8px;}
   @media (max-width:760px){
     .shell{flex-direction:column;}
     nav.side{width:100%;height:auto;position:static;padding:12px 0;display:flex;flex-wrap:wrap;}
@@ -204,22 +217,39 @@ const OPTS = {
     "Label review only when customer specifically requests it, not routine",
     "No label review process — relies entirely on customer-provided artwork, no internal check"
   ],
-  moq: ["Under 1,000 units","1,000–2,499 units","2,500–4,999 units","5,000–9,999 units","10,000+ units"],
-  leadTime: ["15 business days or fewer","16–30 business days","31–45 business days","46–60 business days","More than 60 business days"],
-  netTerms: ["Net 60 or longer","Net 45","Net 30","Net 15","Due on delivery / prepayment required"],
-  deposit: ["No deposit required","1–25% deposit","26–50% deposit","51–75% deposit","76–100% deposit"],
-  credit: ["Over $100,000","$50,000–$100,000","$10,000–$49,999","Under $10,000","No credit extended"],
+  moq: ["1,000 units","3,000 units","5,000 units","10,000 units","15,000 units","20,000 units","30,000 units"],
+  leadTime: ["7 weeks","8 weeks","9 weeks","10 weeks","12 weeks","14 weeks"],
+  netTerms: ["Net 0","Net 30","Net 45","Net 60","Net 75"],
+  deposit: ["20%","25%","30%","50%","100%"],
 };
+// Lists are ordered best-first, except net terms, which read Net 0 -> Net 75
+// (longer terms are better for us, so its best option is the last one).
+OPTS.netTerms.bestLast = true;
 
-function bandScore(list, idx){ if(idx===""||idx===null||idx===undefined) return null; const n=list.length; return n-Number(idx); }
+// Version of the answer options above. Records saved before the Sept 2026
+// procurement revision (no formVersion) are migrated by migrateRecord().
+const FORM_VERSION = 2;
+
+// "N/A" answer for track-record questions a brand-new supplier can't have yet:
+// counts as answered (so the evaluation can be submitted) but isn't scored.
+const NA = "na";
+const NA_LABEL = "N/A \u2014 new supplier, no track record yet";
+
+// Maps an answer to a 1\u20135 score regardless of how many options the list has.
+function bandScore(list, idx){
+  if(idx===""||idx===null||idx===undefined||idx===NA) return null;
+  const n=list.length, i=Number(idx);
+  const rank = list.bestLast ? i : n-1-i; // 0 = worst option
+  return 1 + 4*rank/(n-1);
+}
 
 // ---- Criterion field definitions used to render forms + compute scores ----
 const QC_FIELDS = [
   {key:"testingCapacity", label:"Testing Capacity", weightKey:"testingCapacity", options:OPTS.testingCapacity},
   {key:"gmpMatch", label:"GMP Certification & Regulatory Compliance", weightKey:"gmpMatch", options:OPTS.gmpMatch, hardGateAt:5},
-  {key:"responsivenessResolution", label:"Responsiveness & Issue Resolution (queries, document requests — e.g. GMP cert, SDS — and non-quality issues)", weightKey:"responsivenessResolution", options:OPTS.responsivenessResolution},
-  {key:"productQuality", label:"Product Quality History (12 mo)", weightKey:"productQuality", options:OPTS.productQuality},
-  {key:"coaTurnaround", label:"COA Turnaround", weightKey:"coaTurnaround", options:OPTS.coaTurnaround},
+  {key:"responsivenessResolution", allowNA:true, label:"Responsiveness & Issue Resolution (queries, document requests — e.g. GMP cert, SDS — and non-quality issues)", weightKey:"responsivenessResolution", options:OPTS.responsivenessResolution},
+  {key:"productQuality", allowNA:true, label:"Product Quality History (12 mo)", weightKey:"productQuality", options:OPTS.productQuality},
+  {key:"coaTurnaround", allowNA:true, label:"COA Turnaround", weightKey:"coaTurnaround", options:OPTS.coaTurnaround},
   {key:"labelReviewer", label:"Label Reviewer / Regulatory Label Review", weightKey:"labelReviewer", options:OPTS.labelReviewer},
 ];
 
@@ -228,6 +258,38 @@ const QC_FIELDS = [
 // supplier). Used to compute the two automatic sub-scores below.
 const ONBOARDING_QC_KEYS = ["testingCapacity","gmpMatch","labelReviewer"];
 const PERFORMANCE_QC_KEYS = ["responsivenessResolution","productQuality","coaTurnaround"];
+
+// Records saved before the procurement options were revised store answers as
+// positions in the OLD lists. Net terms map across where the option still
+// exists; deposit, MOQ and lead time can't be mapped, so they're cleared and
+// the evaluation goes back to Ongoing to be completed with the new options.
+function migrateRecord(r){
+  if(!r || (r.formVersion||1) >= FORM_VERSION) return r;
+  const oldNet = {"0":"3","1":"2","2":"1","4":"0"}; // Net 60+ / Net 45 / Net 30 / Due on delivery
+  const p = Object.assign({}, r.proc||{});
+  p.netTerms = oldNet[p.netTerms] || "";
+  p.deposit = ""; p.moq = ""; p.leadTime = "";
+  delete p.credit;
+  const out = Object.assign({}, r, { proc:p, qc:r.qc||{}, formVersion:FORM_VERSION, needsProcUpdate:true });
+  if(out.status==="submitted") out.status = "draft";
+  out.computed = computeScores(out);
+  return out;
+}
+
+// Every question the form asks, with its field id \u2014 all must be answered to submit.
+function missingFields(form){
+  const miss = [];
+  const need = (val, id, label) => { if(val===""||val===null||val===undefined) miss.push({id, label}); };
+  need(form.supplier, "f-supplier", "Supplier name");
+  need(form.product, "f-product", "Product / spec");
+  need(form.proc.actualCost, "p-actualCost", "Product cost");
+  need(form.proc.netTerms, "p-netTerms", "Balance net terms");
+  need(form.proc.deposit, "p-deposit", "Deposit payment");
+  need(form.proc.moq, "p-moq", "MOQ");
+  need(form.proc.leadTime, "p-leadTime", "Initial lead time");
+  QC_FIELDS.forEach(f => need(form.qc[f.key], "q-"+f.key, f.label.replace(/ \(.*$/,"")));
+  return miss;
+}
 
 /* ============================================================
    STORAGE
@@ -256,7 +318,7 @@ async function probeStorage(){
 
 async function listEvaluations(){
   if(storageMode==="memory"){
-    return Object.values(memoryDB).sort((a,b)=> (b.computed?.totalScore ?? -1) - (a.computed?.totalScore ?? -1));
+    return Object.values(memoryDB).map(migrateRecord).sort((a,b)=> (b.computed?.totalScore ?? -1) - (a.computed?.totalScore ?? -1));
   }
   try{
     const keys = await window.storage.list("evaluation:", true);
@@ -265,10 +327,10 @@ async function listEvaluations(){
     for(const k of keys.keys){
       try{
         const res = await window.storage.get(k, true);
-        if(res && res.value) out.push(JSON.parse(res.value));
+        if(res && res.value) out.push(migrateRecord(JSON.parse(res.value)));
       }catch(e){ /* skip unreadable */ }
     }
-    for(const r of Object.values(memoryDB)){ if(!out.some(x=>x.id===r.id)) out.push(r); }
+    for(const r of Object.values(memoryDB)){ if(!out.some(x=>x.id===r.id)) out.push(migrateRecord(r)); }
     out.sort((a,b)=> (b.computed?.totalScore ?? -1) - (a.computed?.totalScore ?? -1));
     return out;
   }catch(e){
@@ -346,6 +408,9 @@ async function saveComparisonRecord(productLabel, suppliers){
       qcTotal: e.computed.qcTotal, procTotal: e.computed.procTotal,
       onboardingScore: e.computed.onboardingScore, performanceScore: e.computed.performanceScore,
     })),
+    // Full copy of each evaluation as it was when saved, so History can show
+    // (and export) the same side-by-side grid even after they're edited later.
+    evaluations: suppliers.map(e=>JSON.parse(JSON.stringify(e))),
   };
   if(storageMode==="memory"){ memoryComparisons[record.id]=record; return record; }
   try{ await window.storage.set("comparison:"+record.id, JSON.stringify(record), true); }
@@ -377,9 +442,10 @@ async function importAll(file){
   catch(e){ showToast("That file isn't valid JSON."); return; }
   if(!Array.isArray(records)){ showToast("Expected a JSON array of evaluations."); return; }
   let count=0, maxRef=0;
-  for(const r of records){
+  for(let r of records){
     if(!r.id || !r.supplier) continue;
     r.proc = r.proc||{}; r.qc = r.qc||{};
+    r = migrateRecord(r);
     r.computed = computeScores(r); // recompute so imported files always match the current scoring model
     if(r.refNumber) maxRef = Math.max(maxRef, Number(r.refNumber)||0);
     try{ await saveEvaluation(r); count++; } catch(e){ /* already logged/toasted */ }
@@ -387,23 +453,56 @@ async function importAll(file){
   await bumpRefCounter(maxRef);
   showToast(`Imported ${count} evaluation${count===1?"":"s"}.`);
 }
+/* ---- PDF downloads (html2pdf.js, loaded on first use) ---- */
+let pdfLibPromise = null;
+function loadPdfLib(){
+  if(window.html2pdf) return Promise.resolve();
+  if(!pdfLibPromise) pdfLibPromise = new Promise((ok, fail)=>{
+    const el = document.createElement("script");
+    el.src = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";
+    el.onload = ok; el.onerror = ()=>{ pdfLibPromise = null; fail(new Error("couldn't load the PDF library")); };
+    document.head.appendChild(el);
+  });
+  return pdfLibPromise;
+}
+async function downloadPdf(title, subtitle, bodyHtml, filename, compact){
+  showToast("Preparing PDF\u2026");
+  try{
+    await loadPdfLib();
+    const sheet = document.createElement("div");
+    sheet.className = "pdf-sheet";
+    if(compact) sheet.classList.add("compact"); // tighter rows so a comparison fits one page
+    sheet.innerHTML = `<h1>${escapeHtml(title)}</h1><p class="sub" style="margin-bottom:18px;">${escapeHtml(subtitle)}</p>${bodyHtml}`;
+    await html2pdf().set({
+      margin: 8,
+      filename: filename.replace(/[^\w.-]+/g,"_")+".pdf",
+      image: { type:"jpeg", quality:0.95 },
+      html2canvas: { scale:2, backgroundColor:"#ffffff" },
+      jsPDF: { unit:"mm", format:"a4", orientation:"landscape" },
+      pagebreak: { mode:["css"], avoid:["tr",".panel"] },
+    }).from(sheet).save();
+  }catch(e){
+    console.error("PDF export failed:", e);
+    showToast("Couldn't create the PDF: "+e.message);
+  }
+}
+function savedOnText(ts){ return ts ? new Date(ts).toLocaleString() : ""; }
 function exportOne(record){
-  const blob = new Blob([JSON.stringify(record, null, 2)], {type:"application/json"});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  const safeName = (record.supplier+"_"+(record.product||"evaluation")).replace(/[^\w.-]+/g,"_");
-  a.href = url; a.download = safeName+".json";
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  setTimeout(()=>URL.revokeObjectURL(url), 1500);
+  const title = `${formatRefNumber(record.refNumber)} \u2014 ${record.supplier}`;
+  const subtitle = `${record.product||"(No product specified)"} \u00b7 ${record.status==="submitted"?"Submitted":"Draft"} \u00b7 Last saved ${savedOnText(record.updatedAt)}`;
+  downloadPdf(title, subtitle, renderPreview(record, record.computed) + renderDetailBreakdown(record),
+    `${formatRefNumber(record.refNumber)}_${record.supplier}_${record.product||"evaluation"}`);
+}
+function comparisonBodyHtml(record){
+  if(record.evaluations && record.evaluations.length) return renderCompareGrid(record.evaluations);
+  // Comparisons saved before full snapshots were kept: summary only.
+  return `<table><tr><th>Supplier</th><th>Total</th><th>Rating</th><th>QC</th><th>Proc.</th></tr>${
+    record.suppliers.map(s=>`<tr><td>${escapeHtml(s.supplier)}${s.hardGate?" (Hard Gate)":""}</td><td class="num">${s.totalScore.toFixed(1)} / 100</td><td>${escapeHtml(s.rating)}</td><td class="num">${s.qcTotal.toFixed(1)}</td><td class="num">${s.procTotal.toFixed(1)}</td></tr>`).join("")
+  }</table>`;
 }
 function exportComparisonRecord(record){
-  const blob = new Blob([JSON.stringify(record, null, 2)], {type:"application/json"});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  const safeName = ("Comparison_"+record.product).replace(/[^\w.-]+/g,"_");
-  a.href = url; a.download = safeName+".json";
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  setTimeout(()=>URL.revokeObjectURL(url), 1500);
+  downloadPdf(`Supplier Comparison \u2014 ${record.product}`, `${record.suppliers.length} suppliers \u00b7 Saved ${savedOnText(record.savedAt)}`,
+    comparisonBodyHtml(record), "Comparison_"+record.product, true);
 }
 async function startNewForProduct(productLabel){
   editingRecord = { supplier:"", product: productLabel, notes:"", proc:{}, qc:{} };
@@ -415,6 +514,7 @@ async function startNewForProduct(productLabel){
    ============================================================ */
 function labelFor(list, idx){
   if(idx===""||idx===null||idx===undefined) return "Not answered";
+  if(idx===NA) return NA_LABEL;
   const v = list[Number(idx)];
   return v===undefined ? "Not answered" : v;
 }
@@ -426,11 +526,10 @@ function renderDetailBreakdown(e){
   const costText = p.actualCost ? `$${p.actualCost}/unit` : "Not answered";
   const procRows = [
     detailRow("Product Cost (Turnkey)", costText),
-    detailRow("Payment Terms — Net terms", labelFor(OPTS.netTerms, p.netTerms)),
-    detailRow("Payment Terms — Deposit", labelFor(OPTS.deposit, p.deposit)),
-    detailRow("Payment Terms — Credit limit", labelFor(OPTS.credit, p.credit)),
+    detailRow("Payment Terms — Balance net terms", labelFor(OPTS.netTerms, p.netTerms)),
+    detailRow("Payment Terms — Deposit payment", labelFor(OPTS.deposit, p.deposit)),
     detailRow("MOQ", labelFor(OPTS.moq, p.moq)),
-    detailRow("Lead Time", labelFor(OPTS.leadTime, p.leadTime)),
+    detailRow("Initial Lead Time", labelFor(OPTS.leadTime, p.leadTime)),
   ].join("");
   const qcRows = QC_FIELDS.map(f=>detailRow(f.label, labelFor(f.options, q[f.key]))).join("");
   return `<div style="display:grid;grid-template-columns:240px 1fr;gap:0;font-size:13px;max-width:720px;">
@@ -449,7 +548,7 @@ function editButton(id){
   return `<button class="btn secondary" data-edit="${id}" style="padding:4px 10px;font-size:12px;">Edit</button>`;
 }
 function saveButton(id){
-  return `<button class="btn secondary" data-export="${id}" style="padding:4px 10px;font-size:12px;">Save</button>`;
+  return `<button class="btn secondary" data-export="${id}" style="padding:4px 10px;font-size:12px;">Save PDF</button>`;
 }
 function detailRowMarkup(id, colspan, record){
   return `<tr class="detail-row" data-detail-for="${id}" style="display:none;"><td colspan="${colspan}" style="background:var(--row);">${renderDetailBreakdown(record)}</td></tr>`;
@@ -485,13 +584,14 @@ function wireEditButtons(recordLookup){
    ============================================================ */
 function computeScores(form){
   // QC side
-  let qcSum=0, qcWeightUsed=0, hardGate=false;
+  let qcSum=0, qcWeightUsed=0, qcWeightNA=0, hardGate=false;
   const qcDetail={};
   for(const f of QC_FIELDS){
     const idx = form.qc[f.key];
     const score = bandScore(f.options, idx);
     const w = QC_WEIGHTS[f.weightKey];
     qcDetail[f.key]={score, weight:w};
+    if(idx===NA) qcWeightNA += w;
     if(score!==null){
       qcWeightUsed += w;
       qcSum += (score/5)*w;
@@ -508,7 +608,7 @@ function computeScores(form){
   // score. Always null here so the existing rescale-if-unanswered logic
   // spreads its 20% weight across Payment Terms, MOQ, and Lead Time.
   const productCostScore = null;
-  const paymentScore = averageOf([bandScore(OPTS.netTerms,p.netTerms), bandScore(OPTS.deposit,p.deposit), bandScore(OPTS.credit,p.credit)]);
+  const paymentScore = averageOf([bandScore(OPTS.netTerms,p.netTerms), bandScore(OPTS.deposit,p.deposit)]);
   const moqScore = bandScore(OPTS.moq, p.moq);
   const leadTimeScore = bandScore(OPTS.leadTime, p.leadTime);
 
@@ -527,7 +627,7 @@ function computeScores(form){
   const procTotal = procSum*procRescale;
 
   const totalScore = qcTotal+procTotal;
-  const completenessQC = qcWeightUsed/QC_TOTAL;
+  const completenessQC = QC_TOTAL>qcWeightNA ? qcWeightUsed/(QC_TOTAL-qcWeightNA) : 1; // N/A answers count as answered
   const completenessProc = procWeightUsed/PROC_SCORABLE_TOTAL;
 
   // Onboarding vs Performance split: some QC criteria can be assessed before
@@ -566,8 +666,8 @@ function averageOf(arr){ const v=arr.filter(x=>x!==null&&x!==undefined); if(!v.l
 /* ============================================================
    RENDER: New Evaluation form
    ============================================================ */
-function selectField(labelText, options, name, extraNote){
-  const opts = options.map((o,i)=>`<option value="${i}">${o}</option>`).join("");
+function selectField(labelText, options, name, extraNote, allowNA){
+  const opts = options.map((o,i)=>`<option value="${i}">${o}</option>`).join("") + (allowNA ? `<option value="${NA}">${NA_LABEL}</option>` : "");
   return `<label class="field">${labelText}</label>
     <select id="${name}" name="${name}"><option value="">Not answered</option>${opts}</select>
     ${extraNote?`<div class="hint">${extraNote}</div>`:""}`;
@@ -583,7 +683,8 @@ function renderNew(editing){
   }
   return `
   <h1>${title}</h1>
-  <p class="sub">Your answers save automatically as you go — nothing is lost even if you leave it half-finished. Unfinished evaluations show up under "Ongoing" so you can pick them back up. Click <strong>Submit Evaluation</strong> when it's ready to count toward that product's comparison. Any question left as "Not answered" is excluded from scoring and the remaining answered criteria are rescaled to fill their side's full weight.</p>
+  <p class="sub">Your answers save automatically as you go — nothing is lost even if you leave it half-finished. Unfinished evaluations stay under "Ongoing" so you can pick them back up. <strong>Submit Evaluation</strong> once every question is answered \u2014 only submitted evaluations appear under "By Product".</p>
+  ${editing && editing.needsProcUpdate ? `<div class="panel" style="background:var(--gold-soft);border-color:var(--gold);"><strong>The procurement answer options were updated.</strong><p class="hint" style="margin-top:6px;">Please re-select Deposit payment, MOQ and Initial Lead Time (and check Balance net terms) using the new options, then submit.</p></div>` : ""}
 
   <div class="panel">
     <h2>Supplier Details</h2>
@@ -602,20 +703,21 @@ function renderNew(editing){
     </div>
 
     <label class="field">2. Payment Terms</label>
-    <div class="grid3">
-      <div>${selectField("Net terms", OPTS.netTerms, "p-netTerms")}</div>
-      <div>${selectField("Deposit required", OPTS.deposit, "p-deposit")}</div>
-      <div>${selectField("Credit limit", OPTS.credit, "p-credit")}</div>
+    <div class="grid2">
+      <div>${selectField("Balance net terms", OPTS.netTerms, "p-netTerms")}</div>
+      <div>${selectField("Deposit payment", OPTS.deposit, "p-deposit")}</div>
     </div>
 
     ${selectField("3. Minimum Order Quantity (MOQ)", OPTS.moq, "p-moq")}
-    ${selectField("4. Lead Time (PO issuance to ship-ready)", OPTS.leadTime, "p-leadTime")}
+    ${selectField("4. Initial Lead Time", OPTS.leadTime, "p-leadTime")}
   </div>
 
   <div class="panel">
     <h2>Section B — Quality &amp; Regulatory <span class="weight-tag">(30% of total)</span></h2>
     ${QC_FIELDS.map((f,i)=>selectField(`${i+1}. ${f.label}`, f.options, "q-"+f.key,
-        f.key==="gmpMatch" ? "Selecting the bottom option triggers an automatic Hard Gate — Not Approved." : null
+        f.key==="gmpMatch" ? "Selecting the bottom option triggers an automatic Hard Gate — Not Approved."
+          : f.allowNA ? "New supplier with no order history yet? Choose \u201cN/A \u2014 new supplier\u201d." : null,
+        f.allowNA
       )).join("")}
   </div>
 
@@ -641,7 +743,7 @@ function collectForm(){
     notes: v("f-notes"),
     proc: {
       actualCost: v("p-actualCost"),
-      netTerms: v("p-netTerms"), deposit: v("p-deposit"), credit: v("p-credit"),
+      netTerms: v("p-netTerms"), deposit: v("p-deposit"),
       moq: v("p-moq"), leadTime: v("p-leadTime"),
     },
     qc: Object.fromEntries(QC_FIELDS.map(f=>[f.key, v("q-"+f.key)])),
@@ -655,7 +757,7 @@ function fillFormFields(record){
   set("f-notes", record.notes);
   const p = record.proc || {};
   set("p-actualCost", p.actualCost);
-  set("p-netTerms", p.netTerms); set("p-deposit", p.deposit); set("p-credit", p.credit);
+  set("p-netTerms", p.netTerms); set("p-deposit", p.deposit);
   set("p-moq", p.moq); set("p-leadTime", p.leadTime);
   const q = record.qc || {};
   QC_FIELDS.forEach(f => set("q-"+f.key, q[f.key]));
@@ -700,9 +802,9 @@ function storageBanner(){
 }
 function exportImportBar(){
   return `<div class="actions-row" style="margin-bottom:18px;">
-    <button class="btn secondary" id="btn-export">Export All (.json)</button>
+    <button class="btn secondary" id="btn-export">Backup all data (.json)</button>
     <label class="btn secondary" style="display:inline-block;">
-      Import .json<input type="file" id="file-import" accept="application/json" style="display:none;">
+      Restore from backup<input type="file" id="file-import" accept="application/json" style="display:none;">
     </label>
   </div>`;
 }
@@ -727,19 +829,13 @@ async function renderHistory(){
       <td>${relativeTime(cmp.savedAt)}</td>
       <td>
         <button class="btn secondary" data-view-comparison="${cmp.id}" style="padding:4px 10px;font-size:12px;">View</button>
-        <button class="btn secondary" data-export-comparison="${cmp.id}" style="padding:4px 10px;font-size:12px;">Save</button>
+        <button class="btn secondary" data-export-comparison="${cmp.id}" style="padding:4px 10px;font-size:12px;">Save PDF</button>
         <button class="btn danger" data-del-comparison="${cmp.id}" style="padding:4px 10px;font-size:12px;">Delete</button>
       </td>
     </tr>
     <tr class="detail-row" data-comparison-detail-for="${cmp.id}" style="display:none;">
-      <td colspan="5" style="background:var(--row);">
-        <div style="display:grid;grid-template-columns:200px 1fr;gap:0;font-size:13px;">
-          ${cmp.suppliers.map(s=>{
-            const onboardingText = (s.onboardingScore!==null && s.onboardingScore!==undefined) ? s.onboardingScore.toFixed(0)+"%" : "No data";
-            const performanceText = (s.performanceScore!==null && s.performanceScore!==undefined) ? s.performanceScore.toFixed(0)+"%" : "No track record yet";
-            return `<div class="rowlabel" style="font-weight:400;">${escapeHtml(s.supplier)}${s.hardGate?" (Hard Gate)":""}</div><div class="cell">Total ${s.totalScore.toFixed(1)} / 100 · ${escapeHtml(s.rating)} · QC ${s.qcTotal.toFixed(1)} · Proc ${s.procTotal.toFixed(1)} · Onboarding ${onboardingText} · Performance ${performanceText}</div>`;
-          }).join("")}
-        </div>
+      <td colspan="5" style="background:var(--panel);padding:16px 10px;">
+        ${comparisonBodyHtml(cmp)}
       </td>
     </tr>`;
   }).join("");
@@ -849,11 +945,11 @@ const COMPARE_ROWS = [
   {label:"Performance Score", get:e=>e.computed.performanceScore!==null ? `<span class="num">${e.computed.performanceScore.toFixed(0)}%</span>` : "No track record yet"},
   {label:"Procurement Subtotal", get:e=>`<span class="num">${e.computed.procTotal.toFixed(1)} / 70</span>`},
   {label:"Data completeness", get:e=>`QC ${Math.round(e.computed.completenessQC*100)}% · Proc ${Math.round(e.computed.completenessProc*100)}%`},
-  {label:"GMP Status", get:e=>OPTS.gmpMatch[5-e.computed.qcDetail.gmpMatch.score]||"Not answered"},
-  {label:"Label Reviewer", get:e=>OPTS.labelReviewer[5-e.computed.qcDetail.labelReviewer.score]||"Not answered"},
-  {label:"Product Quality History", get:e=>OPTS.productQuality[5-e.computed.qcDetail.productQuality.score]||"Not answered"},
-  {label:"COA Turnaround", get:e=>OPTS.coaTurnaround[5-e.computed.qcDetail.coaTurnaround.score]||"Not answered"},
-  {label:"Lead Time", get:e=>OPTS.leadTime[5-e.computed.procDetail.leadTime.score]||"Not answered"},
+  {label:"GMP Status", get:e=>escapeHtml(labelFor(OPTS.gmpMatch, e.qc.gmpMatch))},
+  {label:"Label Reviewer", get:e=>escapeHtml(labelFor(OPTS.labelReviewer, e.qc.labelReviewer))},
+  {label:"Product Quality History", get:e=>escapeHtml(labelFor(OPTS.productQuality, e.qc.productQuality))},
+  {label:"COA Turnaround", get:e=>escapeHtml(labelFor(OPTS.coaTurnaround, e.qc.coaTurnaround))},
+  {label:"Initial Lead Time", get:e=>escapeHtml(labelFor(OPTS.leadTime, e.proc.leadTime))},
   {label:"Quoted Cost (USD/unit)", get:(e, all)=>{
     if(!e.proc.actualCost) return "—";
     const cost = parseFloat(e.proc.actualCost);
@@ -895,15 +991,15 @@ function renderCompareGrid(chosen){
 }
 
 async function renderByProduct(){
-  const evals = await listEvaluations();
+  const evals = (await listEvaluations()).filter(e=>e.status==="submitted"); // drafts live in Ongoing
   lastByProductList = evals;
   groupLabelsByIdx = {};
   compareGroupsByIdx = {};
   const banner = storageBanner();
   if(!evals.length){
-    return `<h1>By Product</h1><p class="sub">Evaluations are grouped by product. Once two or more suppliers for the same product are submitted, a Compare button appears for that product.</p>
+    return `<h1>By Product</h1><p class="sub">Submitted evaluations are grouped by product. Once two or more suppliers for the same product are submitted, a Compare button appears for that product.</p>
             ${banner}${exportImportBar()}
-            <div class="empty">No evaluations yet. Start one from "+ New Evaluation".</div>`;
+            <div class="empty">No submitted evaluations yet. Evaluations still being filled in are under "Ongoing".</div>`;
   }
   const groups = {};
   const order = [];
@@ -1100,13 +1196,16 @@ async function writeDraft(form){
   if(!hadId && identity.status){
     showToast(`Matched existing ${formatRefNumber(identity.refNumber)} for this supplier + product — your changes update that record.`);
   }
-  const record = { id: identity.id, refNumber: identity.refNumber, supplier: form.supplier, product: form.product,
+  let movedBack = false;
+  if(currentDraftStatus==="submitted" && missingFields(form).length){ currentDraftStatus = "draft"; movedBack = true; }
+  const record = { id: identity.id, refNumber: identity.refNumber, formVersion: FORM_VERSION, supplier: form.supplier, product: form.product,
                     notes: form.notes, proc: form.proc, qc: form.qc, computed, status: currentDraftStatus||"draft",
                     updatedAt: Date.now() };
   const indicator = document.getElementById("autosave-status");
   try{
     await saveEvaluation(record);
-    if(indicator) indicator.textContent = formatRefNumber(identity.refNumber)+" · Draft saved · " + new Date().toLocaleTimeString();
+    if(movedBack) showToast(`${formatRefNumber(identity.refNumber)} moved back to Ongoing until every question is answered and it's submitted again.`);
+    if(indicator) indicator.textContent = formatRefNumber(identity.refNumber)+" · "+(record.status==="submitted"?"Saved":"Draft saved")+" · " + new Date().toLocaleTimeString();
   }catch(e){
     if(indicator) indicator.textContent = "Autosave failed — see toast";
   }
@@ -1120,6 +1219,8 @@ function wireNewView(editing){
   if(editing){ fillFormFields(editing); }
 
   document.querySelectorAll("#main input, #main select, #main textarea").forEach(el=>{
+    el.addEventListener("input", ()=>{ if(el.value!=="") el.classList.remove("missing"); });
+    el.addEventListener("change", ()=>{ if(el.value!=="") el.classList.remove("missing"); });
     el.addEventListener("input", debouncedAutoSave);
     el.addEventListener("change", debouncedAutoSave);
   });
@@ -1134,17 +1235,25 @@ function wireNewView(editing){
     const btn = ev.currentTarget;
     clearTimeout(autoSaveTimer); autoSaveTimer=null; // drop the pending debounce; Submit saves the same data
     const form = collectForm();
-    if(!form.supplier){ showToast("Enter a supplier name before submitting."); return; }
-    if(!form.product){ showToast("Enter the product / spec before submitting — it's what groups suppliers for comparison."); return; }
+    document.querySelectorAll("#main .missing").forEach(el=>el.classList.remove("missing"));
+    const missing = missingFields(form);
+    if(missing.length){
+      missing.forEach(m=>{ const el = document.getElementById(m.id); if(el) el.classList.add("missing"); });
+      const first = document.getElementById(missing[0].id);
+      if(first && first.scrollIntoView){ first.scrollIntoView({behavior:"smooth", block:"center"}); first.focus({preventScroll:true}); }
+      const names = missing.slice(0,4).map(m=>m.label).join(", ") + (missing.length>4 ? ` and ${missing.length-4} more` : "");
+      showToast(`Answer every question before submitting \u2014 still missing: ${names}. It's saved under Ongoing in the meantime.`);
+      if(form.supplier) autoSaveDraft(form);
+      return;
+    }
     const computed = computeScores(form);
-    if(computed.completenessQC===0 && computed.completenessProc===0){ showToast("Answer at least one criterion before submitting."); return; }
     btn.disabled = true; btn.textContent = "Submitting…";
     let identity;
     try{
       identity = await enqueueSave(async ()=>{
         submitting = true; // any autosave queued behind this becomes a no-op
         const id = await resolveDraftIdentity(form);
-        const record = { id: id.id, refNumber: id.refNumber, supplier: form.supplier, product: form.product,
+        const record = { id: id.id, refNumber: id.refNumber, formVersion: FORM_VERSION, supplier: form.supplier, product: form.product,
                           notes: form.notes, proc: form.proc, qc: form.qc, computed, status: "submitted",
                           updatedAt: Date.now() };
         await saveEvaluation(record);
@@ -1239,7 +1348,7 @@ function wireByProductView(){
       if(chosen.length<2){ showToast("Tick at least 2 submitted evaluations to save a comparison."); return; }
       const record = await saveComparisonRecord(grp.label, chosen);
       exportComparisonRecord(record);
-      showToast(`Comparison of ${chosen.length} suppliers saved — logged in History and downloaded.`);
+      showToast(`Comparison of ${chosen.length} suppliers saved to History \u2014 downloading PDF.`);
     });
   });
   document.querySelectorAll("[data-add-supplier]").forEach(btn=>{
