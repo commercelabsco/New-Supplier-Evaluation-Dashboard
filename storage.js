@@ -67,7 +67,7 @@ window.initStorage = async function(){
 function showLogin(client){
   const field = "width:100%;padding:10px;font-size:14px;border:1px solid var(--border,#DFE3E7);border-radius:6px;margin-bottom:12px;background:var(--field,#fff);color:var(--ink,#1C2B39);";
   const wrap = document.createElement("div");
-  wrap.style.cssText = "position:fixed;inset:0;background:var(--bg,#F3F5F7);display:flex;align-items:center;justify-content:center;z-index:1000;padding:16px;";
+  wrap.style.cssText = "position:fixed;inset:0;background:var(--bg,#F3F5F7) var(--pattern,none) repeat;display:flex;align-items:center;justify-content:center;z-index:1000;padding:16px;";
   wrap.innerHTML = `
     <form style="background:var(--panel,#fff);border:1px solid var(--border,#DFE3E7);border-radius:8px;padding:28px;max-width:380px;width:100%;font-family:var(--sans,sans-serif);">
       <h2 style="margin:0 0 6px;font-family:var(--serif,serif);">Supplier Evaluation Dashboard</h2>
