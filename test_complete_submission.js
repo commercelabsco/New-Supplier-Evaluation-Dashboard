@@ -32,11 +32,11 @@ const fs = require("fs");
   if (doc.getElementById("p-credit")) fail("credit limit field should be removed");
   const opts = id => [...doc.getElementById(id).options].map(o=>o.textContent).slice(1);
   console.log("MOQ options:", opts("p-moq").join(", "));
-  if (opts("p-moq").length !== 7 || opts("p-leadTime")[0] !== "7 weeks" || opts("p-netTerms")[4] !== "Net 75") fail("new procurement options missing");
+  if (opts("p-moq").length !== 9 || opts("p-moq")[0] !== "Less than 500 units" || opts("p-leadTime")[0] !== "7 weeks" || opts("p-netTerms")[4] !== "Net 75") fail("new procurement options missing");
 
   // Scoring: Net 75 is best, Net 0 worst; 7-option MOQ still scores within 1..5
   const bs = (list, i) => window.eval(`bandScore(OPTS.${list}, "${i}")`);
-  if (bs("netTerms", 4) !== 5 || bs("netTerms", 0) !== 1 || bs("moq", 0) !== 5 || bs("moq", 6) !== 1 || bs("leadTime", 5) !== 1) fail("band scoring wrong");
+  if (bs("netTerms", 4) !== 5 || bs("netTerms", 0) !== 1 || bs("moq", 0) !== 5 || bs("moq", 8) !== 1 || bs("leadTime", 5) !== 1) fail("band scoring wrong");
 
   // Partial evaluation: Submit refuses, record stays a draft, not shown in By Product
   set("f-supplier", "Partial Co"); set("f-product", "Widget");
@@ -70,6 +70,12 @@ const fs = require("fs");
   const legacy = window.eval(`migrateRecord(${JSON.stringify(oldRecord)})`);
   console.log("Legacy net terms (old Net 30 -> new):", legacy.proc.netTerms, "| deposit cleared:", legacy.proc.deposit === "", "| credit removed:", !("credit" in legacy.proc));
   if (legacy.proc.netTerms !== "1" || legacy.proc.deposit !== "" || "credit" in legacy.proc) fail("legacy migration wrong");
+
+  // Records saved before the MOQ options grew keep the same MOQ amount
+  const v2 = window.eval(`migrateRecord(${JSON.stringify({ ...oldRecord, formVersion:2, proc:{ ...oldRecord.proc, moq:"1" } })})`);
+  const moqLabel = window.eval(`labelFor(OPTS.moq, "${v2.proc.moq}")`);
+  console.log("Saved MOQ '3,000 units' after options grew:", moqLabel);
+  if (moqLabel !== "3,000 units" || v2.status !== "submitted") fail("MOQ answers must keep their amount after new options were added");
 
   console.log("PASS: submission requires every answer, drafts stay in Ongoing, legacy records migrate.");
   process.exit(0);

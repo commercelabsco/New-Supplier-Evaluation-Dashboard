@@ -222,7 +222,7 @@ const OPTS = {
     "Label review only when customer specifically requests it, not routine",
     "No label review process — relies entirely on customer-provided artwork, no internal check"
   ],
-  moq: ["1,000 units","3,000 units","5,000 units","10,000 units","15,000 units","20,000 units","30,000 units"],
+  moq: ["Less than 500 units","500 units","1,000 units","3,000 units","5,000 units","10,000 units","15,000 units","20,000 units","30,000 units"],
   leadTime: ["7 weeks","8 weeks","9 weeks","10 weeks","12 weeks","14 weeks"],
   netTerms: ["Net 0","Net 30","Net 45","Net 60","Net 75"],
   deposit: ["20%","25%","30%","50%","100%"],
@@ -231,9 +231,10 @@ const OPTS = {
 // (longer terms are better for us, so its best option is the last one).
 OPTS.netTerms.bestLast = true;
 
-// Version of the answer options above. Records saved before the Sept 2026
-// procurement revision (no formVersion) are migrated by migrateRecord().
-const FORM_VERSION = 2;
+// Version of the answer options above; migrateRecord() upgrades older records.
+//   1 -> 2: procurement options revised (Sept 2026)
+//   2 -> 3: "Less than 500" and "500" added to the top of MOQ
+const FORM_VERSION = 3;
 
 // "N/A" answer for track-record questions a brand-new supplier can't have yet:
 // counts as answered (so the evaluation can be submitted) but isn't scored.
@@ -269,14 +270,20 @@ const PERFORMANCE_QC_KEYS = ["responsivenessResolution","productQuality","coaTur
 // exists; deposit, MOQ and lead time can't be mapped, so they're cleared and
 // the evaluation goes back to Ongoing to be completed with the new options.
 function migrateRecord(r){
-  if(!r || (r.formVersion||1) >= FORM_VERSION) return r;
-  const oldNet = {"0":"3","1":"2","2":"1","4":"0"}; // Net 60+ / Net 45 / Net 30 / Due on delivery
+  const v = (r && r.formVersion) || 1;
+  if(!r || v >= FORM_VERSION) return r;
   const p = Object.assign({}, r.proc||{});
-  p.netTerms = oldNet[p.netTerms] || "";
-  p.deposit = ""; p.moq = ""; p.leadTime = "";
-  delete p.credit;
-  const out = Object.assign({}, r, { proc:p, qc:r.qc||{}, formVersion:FORM_VERSION, needsProcUpdate:true });
-  if(out.status==="submitted") out.status = "draft";
+  const out = Object.assign({}, r, { proc:p, qc:r.qc||{}, formVersion:FORM_VERSION });
+  if(v < 2){
+    const oldNet = {"0":"3","1":"2","2":"1","4":"0"}; // Net 60+ / Net 45 / Net 30 / Due on delivery
+    p.netTerms = oldNet[p.netTerms] || "";
+    p.deposit = ""; p.moq = ""; p.leadTime = "";
+    delete p.credit;
+    out.needsProcUpdate = true;
+    if(out.status==="submitted") out.status = "draft";
+  } else if(v < 3 && p.moq!=="" && p.moq!=null){
+    p.moq = String(Number(p.moq)+2); // two options were inserted above the old first MOQ answer
+  }
   out.computed = computeScores(out);
   return out;
 }
