@@ -21,8 +21,10 @@ const fs = require("fs");
 
   // Submitting now requires every question answered: fill anything still blank.
   function fillRest(){
-    const cost = doc.getElementById("p-actualCost");
-    if(!cost.value){ cost.value = "5.00"; cost.dispatchEvent(new window.Event("input", { bubbles: true })); }
+    ["p-targetCost","p-actualCost"].forEach(id=>{
+      const cost = doc.getElementById(id);
+      if(!cost.value){ cost.value = "5.00"; cost.dispatchEvent(new window.Event("input", { bubbles: true })); }
+    });
     doc.querySelectorAll("#main select").forEach(sel=>{
       if(sel.value===""){ sel.value = "0"; sel.dispatchEvent(new window.Event("change", { bubbles: true })); }
     });

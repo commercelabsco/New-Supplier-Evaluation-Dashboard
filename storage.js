@@ -60,9 +60,37 @@ window.initStorage = async function(){
     },
   };
 
-  window.__user = { name: session.user.email }; // recorded as createdBy / updatedBy / submittedBy
+  // The team shares one login, so each person's own name (kept in this browser)
+  // is what the activity log records as created / edited / submitted by.
+  const name = getDisplayName() || await askDisplayName();
+  window.__user = { name, email: session.user.email };
   addSignOut(client, session.user.email);
 };
+
+const NAME_KEY = "supplierDashboard.displayName";
+function getDisplayName(){ try{ return (localStorage.getItem(NAME_KEY)||"").trim(); }catch(e){ return ""; } }
+function setDisplayName(n){ try{ localStorage.setItem(NAME_KEY, n.trim()); }catch(e){} }
+function askDisplayName(current){
+  return new Promise(resolve=>{
+    const wrap = document.createElement("div");
+    wrap.style.cssText = "position:fixed;inset:0;background:rgba(10,26,34,.55);display:flex;align-items:center;justify-content:center;z-index:1001;padding:16px;";
+    wrap.innerHTML = `
+      <form style="background:var(--panel,#fff);color:var(--ink,#1C2B39);border:1px solid var(--border,#DFE3E7);border-radius:8px;padding:24px;max-width:360px;width:100%;font-family:var(--sans,sans-serif);">
+        <h3 style="margin:0 0 6px;font-family:var(--serif,serif);">What's your name?</h3>
+        <p style="margin:0 0 14px;font-size:13px;color:var(--ink-soft,#55606B);">It's shown in the Activity Log next to the changes you make.</p>
+        <input type="text" required placeholder="e.g. Rowena Sison" style="width:100%;padding:10px;font-size:14px;border:1px solid var(--border,#DFE3E7);border-radius:6px;margin-bottom:12px;background:var(--field,#fff);color:var(--ink,#1C2B39);">
+        <button class="btn" type="submit" style="width:100%;">Continue</button>
+      </form>`;
+    document.body.appendChild(wrap);
+    const input = wrap.querySelector("input");
+    input.value = current || ""; input.focus();
+    wrap.querySelector("form").addEventListener("submit", ev=>{
+      ev.preventDefault();
+      const n = input.value.trim(); if(!n) return;
+      setDisplayName(n); wrap.remove(); resolve(n);
+    });
+  });
+}
 
 function showLogin(client){
   const field = "width:100%;padding:10px;font-size:14px;border:1px solid var(--border,#DFE3E7);border-radius:6px;margin-bottom:12px;background:var(--field,#fff);color:var(--ink,#1C2B39);";
@@ -72,6 +100,7 @@ function showLogin(client){
     <form style="background:var(--panel,#fff);border:1px solid var(--border,#DFE3E7);border-radius:8px;padding:28px;max-width:380px;width:100%;font-family:var(--sans,sans-serif);">
       <h2 style="margin:0 0 6px;font-family:var(--serif,serif);">Supplier Evaluation Dashboard</h2>
       <p style="margin:0 0 18px;color:var(--ink-soft,#55606B);font-size:14px;">Sign in with your team username and password.</p>
+      <input name="name" type="text" required autocomplete="name" placeholder="Your name (shown in the Activity Log)" style="${field}">
       <input name="user" type="text" required autocomplete="username" placeholder="Username or @${ALLOWED_EMAIL_DOMAIN} email" style="${field}">
       <input name="pass" type="password" autocomplete="current-password" placeholder="Password" style="${field}">
       <button class="btn" type="submit" style="width:100%;">Sign in</button>
@@ -80,12 +109,15 @@ function showLogin(client){
     </form>`;
   document.body.appendChild(wrap);
   const form = wrap.querySelector("form"), msg = wrap.querySelector(".msg"), btn = form.querySelector("button");
-  const userInput = form.querySelector("[name=user]"), passInput = form.querySelector("[name=pass]");
+  const userInput = form.querySelector("[name=user]"), passInput = form.querySelector("[name=pass]"), nameInput = form.querySelector("[name=name]");
+  nameInput.value = getDisplayName();
+  nameInput.addEventListener("change", ()=>{ if(nameInput.value.trim()) setDisplayName(nameInput.value); });
   // A bare username like "supplierteam" means supplierteam@commercelabs.co.
   const emailFrom = v => { v = v.trim().toLowerCase(); return v.includes("@") ? v : v+"@"+ALLOWED_EMAIL_DOMAIN; };
 
   form.addEventListener("submit", async ev=>{
     ev.preventDefault();
+    if(nameInput.value.trim()) setDisplayName(nameInput.value);
     const email = emailFrom(userInput.value);
     if(!passInput.value){ msg.textContent = "Enter your password."; return; }
     btn.disabled = true; msg.textContent = "Signing in…";
@@ -98,6 +130,7 @@ function showLogin(client){
   magic.addEventListener("click", async ev=>{
     ev.preventDefault();
     if(magic.dataset.busy) return;
+    if(nameInput.value.trim()) setDisplayName(nameInput.value);
     const email = emailFrom(userInput.value);
     if(!userInput.value.trim() || !email.endsWith("@"+ALLOWED_EMAIL_DOMAIN)){ msg.textContent = "Type your @"+ALLOWED_EMAIL_DOMAIN+" email above first."; return; }
     magic.dataset.busy = "1"; msg.textContent = "Sending…";
@@ -116,8 +149,17 @@ function addSignOut(client, email){
   if(!nav) return;
   const box = document.createElement("div");
   box.style.cssText = "padding:18px 22px;font-size:11px;color:#8FA2AF;border-top:1px solid rgba(255,255,255,.12);margin-top:18px;";
-  box.innerHTML = `<div style="word-break:break-all;margin-bottom:6px;"></div><a href="#" style="color:#B9C6CE;">Sign out</a>`;
-  box.firstElementChild.textContent = email;
-  box.querySelector("a").addEventListener("click", async ev=>{ ev.preventDefault(); await client.auth.signOut(); location.reload(); });
+  box.innerHTML = `<div style="color:#DCE4EA;font-size:12px;margin-bottom:2px;" class="who"></div>
+    <div style="word-break:break-all;margin-bottom:8px;" class="acct"></div>
+    <a href="#" class="rename" style="color:#B9C6CE;">Change name</a> &nbsp;\u00b7&nbsp; <a href="#" class="signout" style="color:#B9C6CE;">Sign out</a>`;
+  const who = box.querySelector(".who");
+  who.textContent = window.__user ? window.__user.name : "";
+  box.querySelector(".acct").textContent = email;
+  box.querySelector(".rename").addEventListener("click", async ev=>{
+    ev.preventDefault();
+    const n = await askDisplayName(getDisplayName());
+    window.__user.name = n; who.textContent = n;
+  });
+  box.querySelector(".signout").addEventListener("click", async ev=>{ ev.preventDefault(); await client.auth.signOut(); location.reload(); });
   nav.appendChild(box);
 }

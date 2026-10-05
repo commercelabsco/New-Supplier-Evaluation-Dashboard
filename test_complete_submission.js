@@ -49,7 +49,7 @@ const fs = require("fs");
   if (!doc.querySelectorAll(".missing").length) fail("missing fields should be highlighted");
 
   // Complete it: now it submits
-  set("p-actualCost", "5"); ["p-netTerms","p-deposit","p-moq","p-leadTime"].forEach(id=>set(id, "1"));
+  set("p-targetCost", "5"); set("p-actualCost", "5"); ["p-netTerms","p-deposit","p-moq","p-leadTime"].forEach(id=>set(id, "1"));
   ["q-testingCapacity","q-labelReviewer"].forEach(id=>set(id, "1"));
   ["q-responsivenessResolution","q-productQuality","q-coaTurnaround"].forEach(id=>set(id, "na"));
   doc.getElementById("btn-save").dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
@@ -75,7 +75,15 @@ const fs = require("fs");
   const v2 = window.eval(`migrateRecord(${JSON.stringify({ ...oldRecord, formVersion:2, proc:{ ...oldRecord.proc, moq:"1" } })})`);
   const moqLabel = window.eval(`labelFor(OPTS.moq, "${v2.proc.moq}")`);
   console.log("Saved MOQ '3,000 units' after options grew:", moqLabel);
-  if (moqLabel !== "3,000 units" || v2.status !== "submitted") fail("MOQ answers must keep their amount after new options were added");
+  if (moqLabel !== "3,000 units") fail("MOQ answers must keep their amount after new options were added");
+
+  // Weights match the agreed table, and cost is scored against the target
+  const w = window.eval("[QC_WEIGHTS, PROC_WEIGHTS]");
+  console.log("Procurement weights:", JSON.stringify(w[1]));
+  if (w[1].productCost!==25 || w[1].paymentTerms!==20 || w[1].moq!==10 || w[1].leadTime!==15) fail("procurement weights wrong");
+  const cs = (t,a) => window.eval(`computeCostScore("${t}","${a}")`);
+  if (cs(10,9)!==5 || cs(10,10.4)!==4 || cs(10,11.5)!==3 || cs(10,12.5)!==2 || cs(10,13)!==1) fail("cost scoring wrong");
+  if (!doc.querySelector("main") || !window.eval("fieldLabel('x', 2)").includes("2%")) fail("weights should show on field labels");
 
   console.log("PASS: submission requires every answer, drafts stay in Ongoing, legacy records migrate.");
   process.exit(0);

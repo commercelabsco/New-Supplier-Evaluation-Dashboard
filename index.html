@@ -121,6 +121,10 @@
   .table-wrap{overflow-x:auto;}
   .btn.confirming{background:var(--red);color:#fff;border-color:var(--red);}
   .missing{border-color:var(--red)!important;box-shadow:0 0 0 1px var(--red);}
+  .req{color:var(--red);margin-left:2px;}
+  .wt{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--accent);margin-left:6px;white-space:nowrap;}
+  .activity-table td,.activity-table th{font-size:12.5px;padding:6px 8px;}
+  .activity-table .old{color:var(--ink-soft);text-decoration:line-through;}
   /* PDF exports always render in the light palette, whatever the viewer's theme. */
   .pdf-sheet{
     --ink:#1C2B39; --ink-soft:#55606B; --bg:#F3F5F7; --panel:#FFFFFF; --border:#DFE3E7;
@@ -180,14 +184,8 @@ window.storageReady = (typeof window.storage !== "undefined") ? Promise.resolve(
 const QC_WEIGHTS = { testingCapacity:2, gmpMatch:6, responsivenessResolution:6, productQuality:5, coaTurnaround:5, labelReviewer:6 };
 const QC_TOTAL = 30;
 
-const PROC_BASE = { productCost:20, paymentTerms:20, moq:20, leadTime:10 }; // sums to 70 exactly, no rescale needed when all 4 answered
-const PROC_RESCALE = 70 / Object.values(PROC_BASE).reduce((a,b)=>a+b,0); // self-correcting: PROC_BASE sums to 70 now, so this is 1
-const PROC_WEIGHTS = Object.fromEntries(Object.entries(PROC_BASE).map(([k,v])=>[k, v*PROC_RESCALE]));
+const PROC_WEIGHTS = { productCost:25, paymentTerms:20, moq:10, leadTime:15 };
 const PROC_TOTAL = 70;
-// Product Cost is reference-only (never scored), so completeness is measured
-// against the criteria that CAN be answered: Payment Terms, MOQ, Lead Time.
-const PROC_SCORABLE_KEYS = ["paymentTerms","moq","leadTime"];
-const PROC_SCORABLE_TOTAL = PROC_SCORABLE_KEYS.reduce((a,k)=>a+PROC_WEIGHTS[k],0);
 
 const OPTS = {
   fiveBandDesc: (labels) => labels.map((l,i)=>({label:l, score:5-i})), // first label = best = 5
@@ -234,7 +232,8 @@ OPTS.netTerms.bestLast = true;
 // Version of the answer options above; migrateRecord() upgrades older records.
 //   1 -> 2: procurement options revised (Sept 2026)
 //   2 -> 3: "Less than 500" and "500" added to the top of MOQ
-const FORM_VERSION = 3;
+//   3 -> 4: Product Cost scored against a new Target Cost field
+const FORM_VERSION = 4;
 
 // "N/A" answer for track-record questions a brand-new supplier can't have yet:
 // counts as answered (so the evaluation can be submitted) but isn't scored.
@@ -284,6 +283,11 @@ function migrateRecord(r){
   } else if(v < 3 && p.moq!=="" && p.moq!=null){
     p.moq = String(Number(p.moq)+2); // two options were inserted above the old first MOQ answer
   }
+  if(v < 4 && !p.targetCost){
+    // Product Cost is now scored against a target, so earlier evaluations need one.
+    out.needsTargetCost = true;
+    if(out.status==="submitted") out.status = "draft";
+  }
   out.computed = computeScores(out);
   return out;
 }
@@ -294,7 +298,8 @@ function missingFields(form){
   const need = (val, id, label) => { if(val===""||val===null||val===undefined) miss.push({id, label}); };
   need(form.supplier, "f-supplier", "Supplier name");
   need(form.product, "f-product", "Product / spec");
-  need(form.proc.actualCost, "p-actualCost", "Product cost");
+  need(form.proc.targetCost, "p-targetCost", "Target cost");
+  need(form.proc.actualCost, "p-actualCost", "Quoted cost");
   need(form.proc.netTerms, "p-netTerms", "Balance net terms");
   need(form.proc.deposit, "p-deposit", "Deposit payment");
   need(form.proc.moq, "p-moq", "MOQ");
@@ -351,20 +356,24 @@ async function listEvaluations(){
     return Object.values(memoryDB);
   }
 }
+// Name of the person using the dashboard (storage.js asks for it at sign-in).
+function currentUserName(){ return window.__user ? (window.__user.name || window.__user.username || null) : null; }
+
 async function saveEvaluation(record){
-  // Optional attribution: only used when a sign-in layer sets window.__user (storage.js does, from the Supabase login).
-  const who = window.__user ? (window.__user.name || window.__user.username) : null;
-  if(who && storageMode!=="memory"){
-    let old = null;
-    try{ const ex = await window.storage.get("evaluation:"+record.id, true); old = JSON.parse(ex.value); }catch(e){}
-    record.createdBy = (old && old.createdBy) || record.createdBy || who;
-    record.createdAt = (old && old.createdAt) || record.createdAt || Date.now();
-    record.updatedBy = who;
-    if(record.status==="submitted") record.submittedBy = (old && old.status==="submitted" && old.submittedBy) || who;
-  }
-  if(storageMode==="memory"){ memoryDB[record.id]=record; return; }
+  const who = currentUserName();
+  let old = null;
+  if(storageMode==="memory") old = memoryDB[record.id] || null;
+  else{ try{ const ex = await window.storage.get("evaluation:"+record.id, true); if(ex && ex.value) old = migrateRecord(JSON.parse(ex.value)); }catch(e){} }
+  const now = Date.now();
+  record.createdBy = (old && old.createdBy) || record.createdBy || who || null;
+  record.createdAt = (old && old.createdAt) || record.createdAt || now;
+  record.updatedBy = who || record.updatedBy || null;
+  record.updatedAt = record.updatedAt || now;
+  if(record.status==="submitted") record.submittedBy = (old && old.status==="submitted" && old.submittedBy) || who;
+  if(storageMode==="memory"){ memoryDB[record.id]=record; await logActivitySafe(old, record, who); return; }
   try{
     await window.storage.set("evaluation:"+record.id, JSON.stringify(record), true);
+    await logActivitySafe(old, record, who);
   }catch(e){
     console.error("saveEvaluation failed:", e);
     memoryDB[record.id]=record; // don't lose the entry even if persistent save failed
@@ -374,9 +383,105 @@ async function saveEvaluation(record){
 }
 async function deleteEvaluation(id){
   delete memoryDB[id];
+  delete memoryActivity[id];
   if(storageMode==="memory") return;
-  try{ await window.storage.delete(id.startsWith?.("evaluation:")?id:"evaluation:"+id, true); }
+  try{
+    await window.storage.delete(id.startsWith?.("evaluation:")?id:"evaluation:"+id, true);
+    const keys = await window.storage.list("activity:"+id+":", true);
+    for(const k of (keys && keys.keys)||[]) await window.storage.delete(k, true);
+  }
   catch(e){ console.error("deleteEvaluation failed:", e); }
+}
+
+/* ---- Activity log: who changed what, and when ----
+   One stored entry per action ("activity:<evaluation id>:<entry id>"), so two
+   people editing never overwrite each other's history. Rapid autosaves by the
+   same person are merged into one "Edited" entry for up to 10 minutes. */
+let memoryActivity = {};
+let lastActivity = null; // {evalId, by, key, entry} \u2014 the entry this session may still extend
+const ACTIVITY_MERGE_MS = 10*60*1000;
+const money = v => (v===""||v==null) ? "\u2014" : "$"+Number(v).toFixed(2);
+const answer = (list, v) => (v===""||v==null) ? "\u2014" : labelFor(list, v);
+const ACTIVITY_FIELDS = [
+  ["Supplier", r=>r.supplier||"\u2014"],
+  ["Product", r=>r.product||"\u2014"],
+  ["Target cost", r=>money((r.proc||{}).targetCost)],
+  ["Quoted cost", r=>money((r.proc||{}).actualCost)],
+  ["Balance net terms", r=>answer(OPTS.netTerms, (r.proc||{}).netTerms)],
+  ["Deposit payment", r=>answer(OPTS.deposit, (r.proc||{}).deposit)],
+  ["MOQ", r=>answer(OPTS.moq, (r.proc||{}).moq)],
+  ["Initial lead time", r=>answer(OPTS.leadTime, (r.proc||{}).leadTime)],
+  ...QC_FIELDS.map(f=>[f.label.replace(/ \(.*$/,""), r=>answer(f.options, (r.qc||{})[f.key])]),
+  ["Notes", r=>r.notes||"\u2014"],
+];
+function diffRecords(oldRec, newRec){
+  const base = oldRec || { proc:{}, qc:{} };
+  return ACTIVITY_FIELDS.map(([field, get])=>({ field, from:get(base), to:get(newRec) })).filter(c=>c.from!==c.to);
+}
+function activityKey(evalId, entryId){ return "activity:"+evalId+":"+entryId; }
+async function writeActivity(evalId, key, entry){
+  if(storageMode==="memory"){ (memoryActivity[evalId] = memoryActivity[evalId] || {})[key] = entry; return; }
+  await window.storage.set(key, JSON.stringify(entry), true);
+}
+async function logActivity(oldRec, rec, who){
+  const changes = diffRecords(oldRec, rec);
+  let action;
+  if(!oldRec) action = "Created";
+  else if(rec.status==="submitted" && oldRec.status!=="submitted") action = "Submitted";
+  else if(rec.status!=="submitted" && oldRec.status==="submitted") action = "Moved back to Ongoing";
+  else if(changes.length) action = "Edited";
+  else return;
+  const now = Date.now(), by = who || "Unknown";
+  const prev = lastActivity;
+  if(action==="Edited" && prev && prev.evalId===rec.id && prev.by===by && now-prev.entry.updatedAt < ACTIVITY_MERGE_MS
+     && (prev.entry.action==="Edited" || prev.entry.action==="Created")){
+    // Fold into the open entry: keep each field's first "from", latest "to".
+    for(const c of changes){
+      const hit = prev.entry.changes.find(x=>x.field===c.field);
+      if(hit) hit.to = c.to; else prev.entry.changes.push(c);
+    }
+    prev.entry.changes = prev.entry.changes.filter(c=>c.from!==c.to);
+    prev.entry.updatedAt = now;
+    await writeActivity(rec.id, prev.key, prev.entry);
+    return;
+  }
+  const entry = { evalId:rec.id, at:now, updatedAt:now, by, action, changes };
+  const key = activityKey(rec.id, now+"-"+Math.random().toString(36).slice(2,6));
+  await writeActivity(rec.id, key, entry);
+  lastActivity = { evalId:rec.id, by, key, entry };
+}
+async function logActivitySafe(oldRec, rec, who){
+  try{ await logActivity(oldRec, rec, who); }catch(e){ console.error("activity log failed:", e); }
+}
+async function listActivity(evalId){
+  let entries = [];
+  if(storageMode==="memory") entries = Object.values(memoryActivity[evalId]||{});
+  else{
+    const keys = await window.storage.list("activity:"+evalId+":", true);
+    for(const k of (keys && keys.keys)||[]){
+      try{ const res = await window.storage.get(k, true); if(res && res.value) entries.push(JSON.parse(res.value)); }catch(e){}
+    }
+  }
+  return entries.sort((a,b)=>b.at-a.at);
+}
+function formatDateTime(ts){
+  if(!ts) return "\u2014";
+  const d = new Date(ts);
+  return d.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})+" \u2013 "+d.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"});
+}
+function lastEditedCell(e){
+  return `${escapeHtml(e.updatedBy||"\u2014")}<div class="hint" style="margin-top:2px;">${formatDateTime(e.updatedAt)}</div>`;
+}
+function renderActivity(entries){
+  if(!entries.length) return `<div class="hint">No activity recorded yet \u2014 changes are logged from now on.</div>`;
+  const clip = v => { v = String(v); return v.length>120 ? v.slice(0,117)+"\u2026" : v; };
+  const rows = entries.map(en=>{
+    const head = `<td>${formatDateTime(en.at)}</td><td>${escapeHtml(en.by)}</td><td><strong>${escapeHtml(en.action)}</strong></td>`;
+    if(!en.changes.length) return `<tr>${head}<td colspan="3" class="hint">\u2014</td></tr>`;
+    return en.changes.map((c,i)=>`<tr>${i?'<td></td><td></td><td></td>':head}<td>${escapeHtml(c.field)}</td><td class="old">${escapeHtml(clip(c.from))}</td><td>${escapeHtml(clip(c.to))}</td></tr>`).join("");
+  }).join("");
+  return `<div style="font-weight:700;margin-bottom:6px;">Activity Log</div>
+    <table class="activity-table"><tr><th>When</th><th>Who</th><th>Action</th><th>Field</th><th>Previous value</th><th>New value</th></tr>${rows}</table>`;
 }
 
 /* ---- Saved comparisons: a persisted record every time "Save Comparison"
@@ -487,7 +592,7 @@ async function downloadPdf(title, subtitle, bodyHtml, filename, compact){
 function savedOnText(ts){ return ts ? new Date(ts).toLocaleString() : ""; }
 function exportOne(record){
   const title = `${formatRefNumber(record.refNumber)} \u2014 ${record.supplier}`;
-  const subtitle = `${record.product||"(No product specified)"} \u00b7 ${record.status==="submitted"?"Submitted":"Draft"} \u00b7 Last saved ${savedOnText(record.updatedAt)}`;
+  const subtitle = `${record.product||"(No product specified)"} \u00b7 ${record.status==="submitted"?"Submitted":"Draft"} \u00b7 Last edited by ${record.updatedBy||"\u2014"}, ${formatDateTime(record.updatedAt)}`;
   downloadPdf(title, subtitle, renderPreview(record, record.computed) + renderDetailBreakdown(record),
     `${formatRefNumber(record.refNumber)}_${record.supplier}_${record.product||"evaluation"}`);
 }
@@ -521,9 +626,9 @@ function detailRow(label, val){
 }
 function renderDetailBreakdown(e){
   const p = e.proc||{}, q = e.qc||{};
-  const costText = p.actualCost ? `$${p.actualCost}/unit` : "Not answered";
   const procRows = [
-    detailRow("Product Cost (Turnkey)", costText),
+    detailRow("Product Cost — Target", p.targetCost ? money(p.targetCost)+"/unit" : "Not answered"),
+    detailRow("Product Cost — Quoted (Turnkey)", p.actualCost ? money(p.actualCost)+"/unit"+costVarianceText(p.targetCost, p.actualCost) : "Not answered"),
     detailRow("Payment Terms — Balance net terms", labelFor(OPTS.netTerms, p.netTerms)),
     detailRow("Payment Terms — Deposit payment", labelFor(OPTS.deposit, p.deposit)),
     detailRow("MOQ", labelFor(OPTS.moq, p.moq)),
@@ -531,13 +636,19 @@ function renderDetailBreakdown(e){
   ].join("");
   const qcRows = QC_FIELDS.map(f=>detailRow(f.label, labelFor(f.options, q[f.key]))).join("");
   return `<div style="display:grid;grid-template-columns:240px 1fr;gap:0;font-size:13px;max-width:720px;">
-    ${(e.createdBy||e.updatedBy)?`<div class="rowlabel" style="font-weight:700;">Record</div><div class="cell">Started by ${escapeHtml(e.createdBy||"—")}${e.updatedBy?` · last edited by ${escapeHtml(e.updatedBy)}`:""}${e.submittedBy?` · submitted by ${escapeHtml(e.submittedBy)}`:""}</div>`:""}
+    <div class="rowlabel" style="font-weight:700;">Record</div><div class="cell">Created by ${escapeHtml(e.createdBy||"\u2014")} \u00b7 ${formatDateTime(e.createdAt)}<br>Last edited by ${escapeHtml(e.updatedBy||"\u2014")} \u00b7 ${formatDateTime(e.updatedAt)}${e.submittedBy?`<br>Submitted by ${escapeHtml(e.submittedBy)}`:""}</div>
     <div class="rowlabel" style="font-weight:700;">Procurement</div><div class="cell"></div>
     ${procRows}
     <div class="rowlabel" style="font-weight:700;margin-top:6px;">Quality</div><div class="cell"></div>
     ${qcRows}
     ${e.notes?`<div class="rowlabel" style="font-weight:700;">Notes</div><div class="cell">${escapeHtml(e.notes)}</div>`:""}
   </div>`;
+}
+function activityButton(id){
+  return `<button class="btn secondary" data-activity="${id}" style="padding:4px 10px;font-size:12px;">Activity</button>`;
+}
+function activityRowMarkup(id, colspan){
+  return `<tr class="detail-row" data-activity-for="${id}" style="display:none;"><td colspan="${colspan}" style="background:var(--row);"></td></tr>`;
 }
 function detailToggleButton(id){
   return `<button class="btn secondary" data-view-detail="${id}" style="padding:4px 10px;font-size:12px;">View</button>`;
@@ -563,6 +674,19 @@ function wireDetailAndExportButtons(recordLookup){
     btn.addEventListener("click", ()=>{
       const rec = recordLookup(btn.getAttribute("data-export"));
       if(rec) exportOne(rec); else showToast("Couldn't find that evaluation.");
+    });
+  });
+  document.querySelectorAll("[data-activity]").forEach(btn=>{
+    btn.addEventListener("click", async ()=>{
+      const id = btn.getAttribute("data-activity");
+      const row = document.querySelector(`[data-activity-for="${CSS.escape(id)}"]`);
+      if(!row) return;
+      if(row.style.display==="table-row"){ row.style.display="none"; return; }
+      row.style.display = "table-row";
+      const cell = row.querySelector("td");
+      cell.innerHTML = '<span class="hint">Loading activity\u2026</span>';
+      try{ cell.innerHTML = renderActivity(await listActivity(id)); }
+      catch(e){ cell.innerHTML = '<span class="hint">Couldn\'t load the activity log: '+escapeHtml(e.message)+'</span>'; }
     });
   });
 }
@@ -601,11 +725,7 @@ function computeScores(form){
 
   // Procurement side
   const p = form.proc;
-  // Product Cost is reference-only now (shown/compared as a raw number, see
-  // the "Cheapest" flag in the comparison grid) — it never contributes a
-  // score. Always null here so the existing rescale-if-unanswered logic
-  // spreads its 20% weight across Payment Terms, MOQ, and Lead Time.
-  const productCostScore = null;
+  const productCostScore = computeCostScore(p.targetCost, p.actualCost);
   const paymentScore = averageOf([bandScore(OPTS.netTerms,p.netTerms), bandScore(OPTS.deposit,p.deposit)]);
   const moqScore = bandScore(OPTS.moq, p.moq);
   const leadTimeScore = bandScore(OPTS.leadTime, p.leadTime);
@@ -626,7 +746,7 @@ function computeScores(form){
 
   const totalScore = qcTotal+procTotal;
   const completenessQC = QC_TOTAL>qcWeightNA ? qcWeightUsed/(QC_TOTAL-qcWeightNA) : 1; // N/A answers count as answered
-  const completenessProc = procWeightUsed/PROC_SCORABLE_TOTAL;
+  const completenessProc = procWeightUsed/PROC_TOTAL;
 
   // Onboarding vs Performance split: some QC criteria can be assessed before
   // any order history exists (audit/documentation-based); others genuinely
@@ -659,11 +779,33 @@ function computeScores(form){
            completenessQC, completenessProc, qcDetail, procDetail,
            onboardingScore, performanceScore };
 }
+// Quoted cost vs target: at/below target = 5; \u22645% over = 4; \u226415% = 3; \u226425% = 2; more = 1.
+function computeCostScore(target, actual){
+  target = parseFloat(target); actual = parseFloat(actual);
+  if(isNaN(target) || isNaN(actual) || target<=0) return null;
+  const over = (actual-target)/target;
+  if(over<=0) return 5;
+  if(over<=0.05) return 4;
+  if(over<=0.15) return 3;
+  if(over<=0.25) return 2;
+  return 1;
+}
+function costVarianceText(target, actual){
+  target = parseFloat(target); actual = parseFloat(actual);
+  if(isNaN(target) || isNaN(actual) || target<=0) return "";
+  const pct = (actual-target)/target*100;
+  if(Math.abs(pct)<0.05) return " (on target)";
+  return ` (${Math.abs(pct).toFixed(1)}% ${pct>0?"over":"under"} target)`;
+}
 function averageOf(arr){ const v=arr.filter(x=>x!==null&&x!==undefined); if(!v.length) return null; return v.reduce((a,b)=>a+b,0)/v.length; }
 
 /* ============================================================
    RENDER: New Evaluation form
    ============================================================ */
+// Field label with the required marker and, when it carries one, its weight.
+function fieldLabel(text, weight){
+  return `${text}<span class="req" title="Required">*</span>${weight!=null ? `<span class="wt">${weight}%</span>` : ""}`;
+}
 function selectField(labelText, options, name, extraNote, allowNA){
   const opts = options.map((o,i)=>`<option value="${i}">${o}</option>`).join("") + (allowNA ? `<option value="${NA}">${NA_LABEL}</option>` : "");
   return `<label class="field">${labelText}</label>
@@ -682,37 +824,42 @@ function renderNew(editing){
   return `
   <h1>${title}</h1>
   <p class="sub">Your answers save automatically as you go — nothing is lost even if you leave it half-finished. Unfinished evaluations stay under "Ongoing" so you can pick them back up. <strong>Submit Evaluation</strong> once every question is answered \u2014 only submitted evaluations appear under "By Product".</p>
+  <p class="hint" style="margin:-16px 0 20px;"><span class="req">*</span> Required field \u2014 all required fields must be completed to receive a final 100% evaluation score.</p>
+  ${editing && editing.id ? `<p class="hint" style="margin:-10px 0 20px;">Created by ${escapeHtml(editing.createdBy||"\u2014")} \u00b7 ${formatDateTime(editing.createdAt)} &nbsp;|&nbsp; Last edited by ${escapeHtml(editing.updatedBy||"\u2014")} \u00b7 ${formatDateTime(editing.updatedAt)}</p>` : ""}
+  ${editing && editing.needsTargetCost ? `<div class="panel" style="background:var(--gold-soft);border-color:var(--gold);"><strong>Product Cost is now scored (25%).</strong><p class="hint" style="margin-top:6px;">Add the <strong>Target Cost</strong> for this product, then submit again.</p></div>` : ""}
   ${editing && editing.needsProcUpdate ? `<div class="panel" style="background:var(--gold-soft);border-color:var(--gold);"><strong>The procurement answer options were updated.</strong><p class="hint" style="margin-top:6px;">Please re-select Deposit payment, MOQ and Initial Lead Time (and check Balance net terms) using the new options, then submit.</p></div>` : ""}
 
   <div class="panel">
     <h2>Supplier Details</h2>
     <div class="grid2">
-      <div><label class="field">Supplier / Company Name</label><input type="text" id="f-supplier" placeholder="e.g. Blue Mountain"></div>
-      <div><label class="field">Product / Spec Being Quoted</label><input type="text" id="f-product" placeholder="e.g. Nusava Saffron Gummies"></div>
+      <div><label class="field">${fieldLabel("Supplier / Company Name")}</label><input type="text" id="f-supplier" placeholder="e.g. Blue Mountain"></div>
+      <div><label class="field">${fieldLabel("Product / Spec Being Quoted")}</label><input type="text" id="f-product" placeholder="e.g. Nusava Saffron Gummies"></div>
     </div>
   </div>
 
   <div class="panel">
     <h2>Section A — Commercial / Procurement <span class="weight-tag">(70% of total)</span></h2>
 
-    <label class="field">1. Product Cost (Turnkey)</label>
+    <label class="field">1. Product Cost (Turnkey)<span class="wt">${PROC_WEIGHTS.productCost}%</span></label>
     <div class="grid2">
-      <div><label class="hint">Quoted Cost (USD/unit, Turnkey) — reference only, compared directly against other suppliers for this product</label><input type="number" step="0.01" id="p-actualCost"></div>
+      <div><label class="field" style="margin-top:4px;font-weight:500;">${fieldLabel("Target Cost (USD/unit)")}</label><input type="number" step="0.01" min="0" id="p-targetCost"></div>
+      <div><label class="field" style="margin-top:4px;font-weight:500;">${fieldLabel("Quoted Cost (USD/unit, Turnkey)")}</label><input type="number" step="0.01" min="0" id="p-actualCost"></div>
+    </div>
+    <div class="hint">At or below target = full marks \u00b7 up to 5% over = 4/5 \u00b7 up to 15% over = 3/5 \u00b7 up to 25% over = 2/5 \u00b7 more = 1/5</div>
+
+    <label class="field">2. Payment Terms<span class="wt">${PROC_WEIGHTS.paymentTerms}%</span></label>
+    <div class="grid2">
+      <div>${selectField(fieldLabel("Balance net terms"), OPTS.netTerms, "p-netTerms")}</div>
+      <div>${selectField(fieldLabel("Deposit payment"), OPTS.deposit, "p-deposit")}</div>
     </div>
 
-    <label class="field">2. Payment Terms</label>
-    <div class="grid2">
-      <div>${selectField("Balance net terms", OPTS.netTerms, "p-netTerms")}</div>
-      <div>${selectField("Deposit payment", OPTS.deposit, "p-deposit")}</div>
-    </div>
-
-    ${selectField("3. Minimum Order Quantity (MOQ)", OPTS.moq, "p-moq")}
-    ${selectField("4. Initial Lead Time", OPTS.leadTime, "p-leadTime")}
+    ${selectField(fieldLabel("3. Minimum Order Quantity (MOQ)", PROC_WEIGHTS.moq), OPTS.moq, "p-moq")}
+    ${selectField(fieldLabel("4. Initial Lead Time", PROC_WEIGHTS.leadTime), OPTS.leadTime, "p-leadTime")}
   </div>
 
   <div class="panel">
     <h2>Section B — Quality &amp; Regulatory <span class="weight-tag">(30% of total)</span></h2>
-    ${QC_FIELDS.map((f,i)=>selectField(`${i+1}. ${f.label}`, f.options, "q-"+f.key,
+    ${QC_FIELDS.map((f,i)=>selectField(fieldLabel(`${i+1}. ${f.label}`, QC_WEIGHTS[f.weightKey]), f.options, "q-"+f.key,
         f.key==="gmpMatch" ? "Selecting the bottom option triggers an automatic Hard Gate — Not Approved."
           : f.allowNA ? "New supplier with no order history yet? Choose \u201cN/A \u2014 new supplier\u201d." : null,
         f.allowNA
@@ -740,7 +887,7 @@ function collectForm(){
     product: v("f-product").trim(),
     notes: v("f-notes"),
     proc: {
-      actualCost: v("p-actualCost"),
+      targetCost: v("p-targetCost"), actualCost: v("p-actualCost"),
       netTerms: v("p-netTerms"), deposit: v("p-deposit"),
       moq: v("p-moq"), leadTime: v("p-leadTime"),
     },
@@ -754,7 +901,7 @@ function fillFormFields(record){
   set("f-product", record.product);
   set("f-notes", record.notes);
   const p = record.proc || {};
-  set("p-actualCost", p.actualCost);
+  set("p-targetCost", p.targetCost); set("p-actualCost", p.actualCost);
   set("p-netTerms", p.netTerms); set("p-deposit", p.deposit);
   set("p-moq", p.moq); set("p-leadTime", p.leadTime);
   const q = record.qc || {};
@@ -890,20 +1037,20 @@ async function renderOngoing(){
       <td>${escapeHtml(e.supplier)}</td>
       <td>${escapeHtml(e.product && e.product.trim() ? e.product : "(No product specified)")}</td>
       <td class="completeness">QC ${Math.round(c.completenessQC*100)}% · Proc ${Math.round(c.completenessProc*100)}%</td>
-      <td>${relativeTime(e.updatedAt)}</td>
+      <td>${lastEditedCell(e)}</td>
       <td>
         <button class="btn secondary" data-resume="${e.id}" style="padding:4px 10px;font-size:12px;">Resume</button>
-        ${detailToggleButton(e.id)} ${saveButton(e.id)}
+        ${detailToggleButton(e.id)} ${activityButton(e.id)} ${saveButton(e.id)}
         <button class="btn danger" data-del="${e.id}" style="padding:4px 10px;font-size:12px;">Delete</button>
       </td>
-    </tr>${detailRowMarkup(e.id, colspan, e)}`;
+    </tr>${detailRowMarkup(e.id, colspan, e)}${activityRowMarkup(e.id, colspan)}`;
   }).join("");
   return `
   <h1>Ongoing</h1>
   <p class="sub">Evaluations you've started but not yet submitted. Resume one to keep filling it in — nothing already answered gets lost.</p>
   ${banner}${exportImportBar()}
   <div class="table-wrap"><table>
-    <tr><th>Ref #</th><th>Supplier</th><th>Product</th><th>Completeness</th><th>Last saved</th><th></th></tr>
+    <tr><th>Ref #</th><th>Supplier</th><th>Product</th><th>Completeness</th><th>Last edited</th><th></th></tr>
     ${rows}
   </table></div>`;
 }
@@ -950,7 +1097,8 @@ const COMPARE_ROWS = [
     const cost = parseFloat(e.proc.actualCost);
     const costs = (all||[]).map(x=>x.proc.actualCost?parseFloat(x.proc.actualCost):null).filter(c=>c!==null);
     const isCheapest = costs.length>1 && cost===Math.min(...costs);
-    return `$${cost.toFixed(2)}` + (isCheapest ? ` <strong style="color:var(--green);">↓ Cheapest</strong>` : "");
+    return `$${cost.toFixed(2)}` + (isCheapest ? ` <strong style="color:var(--green);">↓ Cheapest</strong>` : "")
+      + (e.proc.targetCost ? `<div class="hint">Target ${money(e.proc.targetCost)}${escapeHtml(costVarianceText(e.proc.targetCost, e.proc.actualCost))}</div>` : "");
   }},
 ];
 function compareButtonLabel(n){
@@ -1003,7 +1151,7 @@ async function renderByProduct(){
     if(!groups[key]){ groups[key] = { label: e.product && e.product.trim() ? e.product.trim() : "(No product specified)", items: [] }; order.push(key); }
     groups[key].items.push(e);
   }
-  const colspan = 10;
+  const colspan = 11;
   const sections = order.map((key,idx)=>{
     const g = groups[key];
     groupLabelsByIdx[idx] = g.label;
@@ -1024,9 +1172,10 @@ async function renderByProduct(){
         <td class="num"><strong>${c.totalScore.toFixed(1)}</strong></td>
         <td><span class="badge ${ratingBadgeClass(c.rating)}">${c.rating}</span></td>
         <td class="completeness">QC ${Math.round(c.completenessQC*100)}% · Proc ${Math.round(c.completenessProc*100)}%</td>
-        <td>${editButton(e.id)} ${detailToggleButton(e.id)} ${saveButton(e.id)}
+        <td>${lastEditedCell(e)}</td>
+        <td>${editButton(e.id)} ${detailToggleButton(e.id)} ${activityButton(e.id)} ${saveButton(e.id)}
             <button class="btn danger" data-del="${e.id}" style="padding:4px 10px;font-size:12px;">Delete</button></td>
-      </tr>${detailRowMarkup(e.id, colspan, e)}`;
+      </tr>${detailRowMarkup(e.id, colspan, e)}${activityRowMarkup(e.id, colspan)}`;
     }).join("");
     const submitted = g.items.filter(e=>e.status==="submitted");
     let compareBlock = "";
@@ -1053,7 +1202,7 @@ async function renderByProduct(){
         <button class="btn secondary" data-add-supplier="${idx}" style="padding:5px 12px;font-size:13px;">+ Add Supplier</button>
       </div>
       <div class="table-wrap"><table>
-        <tr><th style="text-align:center;">Compare</th><th>Ref #</th><th>Supplier</th><th>Status</th><th>QC</th><th>Proc.</th><th>Total</th><th>Rating</th><th>Completeness</th><th></th></tr>
+        <tr><th style="text-align:center;">Compare</th><th>Ref #</th><th>Supplier</th><th>Status</th><th>QC</th><th>Proc.</th><th>Total</th><th>Rating</th><th>Completeness</th><th>Last edited</th><th></th></tr>
         ${rows}
       </table></div>
       ${compareBlock}
