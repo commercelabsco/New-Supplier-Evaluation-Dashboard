@@ -49,7 +49,7 @@ const fs = require("fs");
   if (!doc.querySelectorAll(".missing").length) fail("missing fields should be highlighted");
 
   // Complete it: now it submits
-  set("p-targetCost", "5"); set("p-actualCost", "5"); ["p-netTerms","p-deposit","p-moq","p-leadTime"].forEach(id=>set(id, "1"));
+  set("p-actualCost", "5"); ["p-netTerms","p-deposit","p-moq","p-leadTime"].forEach(id=>set(id, "1"));
   ["q-testingCapacity","q-labelReviewer"].forEach(id=>set(id, "1"));
   ["q-responsivenessResolution","q-productQuality","q-coaTurnaround"].forEach(id=>set(id, "na"));
   doc.getElementById("btn-save").dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
@@ -83,6 +83,23 @@ const fs = require("fs");
   if (w[1].productCost!==25 || w[1].paymentTerms!==20 || w[1].moq!==10 || w[1].leadTime!==15) fail("procurement weights wrong");
   const cs = (t,a) => window.eval(`computeCostScore("${t}","${a}")`);
   if (cs(10,9)!==5 || cs(10,10.4)!==4 || cs(10,11.5)!==3 || cs(10,12.5)!==2 || cs(10,13)!==1) fail("cost scoring wrong");
+  // Deposit offers "0% (no deposit)"; older deposit answers keep their percentage
+  if (window.eval("OPTS.deposit[0]") !== "0% (no deposit)") fail("0% deposit option missing");
+  const v4 = window.eval(`migrateRecord(${JSON.stringify({ ...oldRecord, formVersion:4, proc:{ ...oldRecord.proc, deposit:"0", moq:"2" } })})`);
+  const dep = window.eval(`labelFor(OPTS.deposit, "${v4.proc.deposit}")`);
+  console.log("Saved deposit '20%' after 0% was added:", dep, "| still submitted:", v4.status);
+  if (dep !== "20%" || v4.status !== "submitted") fail("deposit answers must keep their percentage");
+  if (window.eval("renderNew(null)").includes("p-targetCost")) fail("target cost field should be removed");
+
+  // Cost is scored against the cheapest submitted quote for the same product
+  const peers = [{ id:"a", status:"submitted", product:"Gummies", proc:{ actualCost:"5" }, qc:{} },
+                 { id:"b", status:"submitted", product:"gummies ", proc:{ actualCost:"6" }, qc:{} },
+                 { id:"c", status:"submitted", product:"Other", proc:{ actualCost:"1" }, qc:{} }];
+  const scored = window.eval(`withPeerScores(${JSON.stringify(peers)})`);
+  const costScore = id => scored.find(e=>e.id===id).computed.procDetail.productCost.score;
+  console.log("Cost scores: $5 ->", costScore("a"), "| $6 (20% above) ->", costScore("b"), "| other product ->", costScore("c"));
+  if (costScore("a") !== 5 || costScore("b") !== 2 || costScore("c") !== 5) fail("cost should be scored against the cheapest quote for the same product");
+
   if (!doc.querySelector("main") || !window.eval("fieldLabel('x', 2)").includes("2%")) fail("weights should show on field labels");
 
   console.log("PASS: submission requires every answer, drafts stay in Ongoing, legacy records migrate.");

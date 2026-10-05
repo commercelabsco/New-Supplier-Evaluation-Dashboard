@@ -223,7 +223,7 @@ const OPTS = {
   moq: ["Less than 500 units","500 units","1,000 units","3,000 units","5,000 units","10,000 units","15,000 units","20,000 units","30,000 units"],
   leadTime: ["7 weeks","8 weeks","9 weeks","10 weeks","12 weeks","14 weeks"],
   netTerms: ["Net 0","Net 30","Net 45","Net 60","Net 75"],
-  deposit: ["20%","25%","30%","50%","100%"],
+  deposit: ["0% (no deposit)","20%","25%","30%","50%","100%"],
 };
 // Lists are ordered best-first, except net terms, which read Net 0 -> Net 75
 // (longer terms are better for us, so its best option is the last one).
@@ -232,8 +232,9 @@ OPTS.netTerms.bestLast = true;
 // Version of the answer options above; migrateRecord() upgrades older records.
 //   1 -> 2: procurement options revised (Sept 2026)
 //   2 -> 3: "Less than 500" and "500" added to the top of MOQ
-//   3 -> 4: Product Cost scored against a new Target Cost field
-const FORM_VERSION = 4;
+//   3 -> 4: (a Target Cost field, since removed \u2014 no data change)
+//   4 -> 5: "0% (no deposit)" added to the top of Deposit payment
+const FORM_VERSION = 5;
 
 // "N/A" answer for track-record questions a brand-new supplier can't have yet:
 // counts as answered (so the evaluation can be submitted) but isn't scored.
@@ -283,11 +284,10 @@ function migrateRecord(r){
   } else if(v < 3 && p.moq!=="" && p.moq!=null){
     p.moq = String(Number(p.moq)+2); // two options were inserted above the old first MOQ answer
   }
-  if(v < 4 && !p.targetCost){
-    // Product Cost is now scored against a target, so earlier evaluations need one.
-    out.needsTargetCost = true;
-    if(out.status==="submitted") out.status = "draft";
+  if(v < 5 && p.deposit!=="" && p.deposit!=null){
+    p.deposit = String(Number(p.deposit)+1); // "0% (no deposit)" was inserted above the old first answer
   }
+  delete p.targetCost;
   out.computed = computeScores(out);
   return out;
 }
@@ -298,8 +298,7 @@ function missingFields(form){
   const need = (val, id, label) => { if(val===""||val===null||val===undefined) miss.push({id, label}); };
   need(form.supplier, "f-supplier", "Supplier name");
   need(form.product, "f-product", "Product / spec");
-  need(form.proc.targetCost, "p-targetCost", "Target cost");
-  need(form.proc.actualCost, "p-actualCost", "Quoted cost");
+  need(form.proc.actualCost, "p-actualCost", "Turnkey cost");
   need(form.proc.netTerms, "p-netTerms", "Balance net terms");
   need(form.proc.deposit, "p-deposit", "Deposit payment");
   need(form.proc.moq, "p-moq", "MOQ");
@@ -335,7 +334,7 @@ async function probeStorage(){
 
 async function listEvaluations(){
   if(storageMode==="memory"){
-    return Object.values(memoryDB).map(migrateRecord).sort((a,b)=> (b.computed?.totalScore ?? -1) - (a.computed?.totalScore ?? -1));
+    return withPeerScores(Object.values(memoryDB).map(migrateRecord));
   }
   try{
     const keys = await window.storage.list("evaluation:", true);
@@ -348,13 +347,34 @@ async function listEvaluations(){
       }catch(e){ /* skip unreadable */ }
     }
     for(const r of Object.values(memoryDB)){ if(!out.some(x=>x.id===r.id)) out.push(migrateRecord(r)); }
-    out.sort((a,b)=> (b.computed?.totalScore ?? -1) - (a.computed?.totalScore ?? -1));
-    return out;
+    return withPeerScores(out);
   }catch(e){
     console.error("listEvaluations failed:", e);
     showToast("Couldn't load history: "+e.message);
-    return Object.values(memoryDB);
+    return withPeerScores(Object.values(memoryDB).map(migrateRecord));
   }
+}
+
+/* ---- Product Cost (25%) is scored against the cheapest submitted turnkey
+   quote for the same product, so scores are recomputed whenever the list
+   loads: adding a cheaper supplier lowers the others' cost scores. ---- */
+let lastEvalCache = [];
+const productKeyOf = p => (p||"").trim().toLowerCase();
+function cheapestQuote(evals, product, ownCost){
+  let min = null;
+  const consider = c => { c = parseFloat(c); if(!isNaN(c) && c>0) min = min==null ? c : Math.min(min, c); };
+  for(const e of evals) if(e.status==="submitted" && productKeyOf(e.product)===productKeyOf(product)) consider((e.proc||{}).actualCost);
+  consider(ownCost);
+  return min;
+}
+function scoreWithPeers(rec, evals){
+  const peers = (evals || lastEvalCache).filter(e=>e.id!==rec.id);
+  return computeScores(rec, cheapestQuote(peers, rec.product, (rec.proc||{}).actualCost));
+}
+function withPeerScores(list){
+  const scored = list.map(e=>Object.assign({}, e, { computed: scoreWithPeers(e, list) }));
+  lastEvalCache = scored;
+  return scored.sort((a,b)=> (b.computed?.totalScore ?? -1) - (a.computed?.totalScore ?? -1));
 }
 // Name of the person using the dashboard (storage.js asks for it at sign-in).
 function currentUserName(){ return window.__user ? (window.__user.name || window.__user.username || null) : null; }
@@ -405,8 +425,7 @@ const answer = (list, v) => (v===""||v==null) ? "\u2014" : labelFor(list, v);
 const ACTIVITY_FIELDS = [
   ["Supplier", r=>r.supplier||"\u2014"],
   ["Product", r=>r.product||"\u2014"],
-  ["Target cost", r=>money((r.proc||{}).targetCost)],
-  ["Quoted cost", r=>money((r.proc||{}).actualCost)],
+  ["Turnkey cost", r=>money((r.proc||{}).actualCost)],
   ["Balance net terms", r=>answer(OPTS.netTerms, (r.proc||{}).netTerms)],
   ["Deposit payment", r=>answer(OPTS.deposit, (r.proc||{}).deposit)],
   ["MOQ", r=>answer(OPTS.moq, (r.proc||{}).moq)],
@@ -627,8 +646,7 @@ function detailRow(label, val){
 function renderDetailBreakdown(e){
   const p = e.proc||{}, q = e.qc||{};
   const procRows = [
-    detailRow("Product Cost — Target", p.targetCost ? money(p.targetCost)+"/unit" : "Not answered"),
-    detailRow("Product Cost — Quoted (Turnkey)", p.actualCost ? money(p.actualCost)+"/unit"+costVarianceText(p.targetCost, p.actualCost) : "Not answered"),
+    detailRow("Product Cost (Turnkey)", p.actualCost ? money(p.actualCost)+"/unit"+costVsCheapestText((e.computed||{}).cheapestCost, p.actualCost) : "Not answered"),
     detailRow("Payment Terms — Balance net terms", labelFor(OPTS.netTerms, p.netTerms)),
     detailRow("Payment Terms — Deposit payment", labelFor(OPTS.deposit, p.deposit)),
     detailRow("MOQ", labelFor(OPTS.moq, p.moq)),
@@ -704,7 +722,9 @@ function wireEditButtons(recordLookup){
 /* ============================================================
    COMPUTE SCORE
    ============================================================ */
-function computeScores(form){
+// cheapest: lowest submitted turnkey quote for this product (see scoreWithPeers);
+// without it the evaluation is compared with its own quote (full marks).
+function computeScores(form, cheapest){
   // QC side
   let qcSum=0, qcWeightUsed=0, qcWeightNA=0, hardGate=false;
   const qcDetail={};
@@ -725,7 +745,8 @@ function computeScores(form){
 
   // Procurement side
   const p = form.proc;
-  const productCostScore = computeCostScore(p.targetCost, p.actualCost);
+  if(cheapest==null) cheapest = parseFloat(p.actualCost) || null;
+  const productCostScore = computeCostScore(cheapest, p.actualCost);
   const paymentScore = averageOf([bandScore(OPTS.netTerms,p.netTerms), bandScore(OPTS.deposit,p.deposit)]);
   const moqScore = bandScore(OPTS.moq, p.moq);
   const leadTimeScore = bandScore(OPTS.leadTime, p.leadTime);
@@ -777,25 +798,24 @@ function computeScores(form){
 
   return { qcTotal, procTotal, totalScore, hardGate, rating, recommendation,
            completenessQC, completenessProc, qcDetail, procDetail,
-           onboardingScore, performanceScore };
+           onboardingScore, performanceScore, cheapestCost: cheapest };
 }
-// Quoted cost vs target: at/below target = 5; \u22645% over = 4; \u226415% = 3; \u226425% = 2; more = 1.
-function computeCostScore(target, actual){
-  target = parseFloat(target); actual = parseFloat(actual);
-  if(isNaN(target) || isNaN(actual) || target<=0) return null;
-  const over = (actual-target)/target;
+// Turnkey cost vs the cheapest quote: cheapest = 5; \u22645% higher = 4; \u226415% = 3; \u226425% = 2; more = 1.
+function computeCostScore(cheapest, actual){
+  cheapest = parseFloat(cheapest); actual = parseFloat(actual);
+  if(isNaN(cheapest) || isNaN(actual) || cheapest<=0) return null;
+  const over = (actual-cheapest)/cheapest;
   if(over<=0) return 5;
   if(over<=0.05) return 4;
   if(over<=0.15) return 3;
   if(over<=0.25) return 2;
   return 1;
 }
-function costVarianceText(target, actual){
-  target = parseFloat(target); actual = parseFloat(actual);
-  if(isNaN(target) || isNaN(actual) || target<=0) return "";
-  const pct = (actual-target)/target*100;
-  if(Math.abs(pct)<0.05) return " (on target)";
-  return ` (${Math.abs(pct).toFixed(1)}% ${pct>0?"over":"under"} target)`;
+function costVsCheapestText(cheapest, actual){
+  cheapest = parseFloat(cheapest); actual = parseFloat(actual);
+  if(isNaN(cheapest) || isNaN(actual) || cheapest<=0) return "";
+  const pct = (actual-cheapest)/cheapest*100;
+  return pct<0.05 ? " (cheapest quote)" : ` (${pct.toFixed(1)}% above the cheapest quote)`;
 }
 function averageOf(arr){ const v=arr.filter(x=>x!==null&&x!==undefined); if(!v.length) return null; return v.reduce((a,b)=>a+b,0)/v.length; }
 
@@ -826,7 +846,6 @@ function renderNew(editing){
   <p class="sub">Your answers save automatically as you go — nothing is lost even if you leave it half-finished. Unfinished evaluations stay under "Ongoing" so you can pick them back up. <strong>Submit Evaluation</strong> once every question is answered \u2014 only submitted evaluations appear under "By Product".</p>
   <p class="hint" style="margin:-16px 0 20px;"><span class="req">*</span> Required field \u2014 all required fields must be completed to receive a final 100% evaluation score.</p>
   ${editing && editing.id ? `<p class="hint" style="margin:-10px 0 20px;">Created by ${escapeHtml(editing.createdBy||"\u2014")} \u00b7 ${formatDateTime(editing.createdAt)} &nbsp;|&nbsp; Last edited by ${escapeHtml(editing.updatedBy||"\u2014")} \u00b7 ${formatDateTime(editing.updatedAt)}</p>` : ""}
-  ${editing && editing.needsTargetCost ? `<div class="panel" style="background:var(--gold-soft);border-color:var(--gold);"><strong>Product Cost is now scored (25%).</strong><p class="hint" style="margin-top:6px;">Add the <strong>Target Cost</strong> for this product, then submit again.</p></div>` : ""}
   ${editing && editing.needsProcUpdate ? `<div class="panel" style="background:var(--gold-soft);border-color:var(--gold);"><strong>The procurement answer options were updated.</strong><p class="hint" style="margin-top:6px;">Please re-select Deposit payment, MOQ and Initial Lead Time (and check Balance net terms) using the new options, then submit.</p></div>` : ""}
 
   <div class="panel">
@@ -840,12 +859,11 @@ function renderNew(editing){
   <div class="panel">
     <h2>Section A — Commercial / Procurement <span class="weight-tag">(70% of total)</span></h2>
 
-    <label class="field">1. Product Cost (Turnkey)<span class="wt">${PROC_WEIGHTS.productCost}%</span></label>
+    <label class="field">${fieldLabel("1. Product Cost (Turnkey, USD/unit)", PROC_WEIGHTS.productCost)}</label>
     <div class="grid2">
-      <div><label class="field" style="margin-top:4px;font-weight:500;">${fieldLabel("Target Cost (USD/unit)")}</label><input type="number" step="0.01" min="0" id="p-targetCost"></div>
-      <div><label class="field" style="margin-top:4px;font-weight:500;">${fieldLabel("Quoted Cost (USD/unit, Turnkey)")}</label><input type="number" step="0.01" min="0" id="p-actualCost"></div>
+      <div><input type="number" step="0.01" min="0" id="p-actualCost" placeholder="e.g. 5.80"></div>
     </div>
-    <div class="hint">At or below target = full marks \u00b7 up to 5% over = 4/5 \u00b7 up to 15% over = 3/5 \u00b7 up to 25% over = 2/5 \u00b7 more = 1/5</div>
+    <div class="hint">Scored against the cheapest submitted quote for the same product: cheapest = full marks \u00b7 up to 5% higher = 4/5 \u00b7 up to 15% = 3/5 \u00b7 up to 25% = 2/5 \u00b7 more = 1/5</div>
 
     <label class="field">2. Payment Terms<span class="wt">${PROC_WEIGHTS.paymentTerms}%</span></label>
     <div class="grid2">
@@ -887,7 +905,7 @@ function collectForm(){
     product: v("f-product").trim(),
     notes: v("f-notes"),
     proc: {
-      targetCost: v("p-targetCost"), actualCost: v("p-actualCost"),
+      actualCost: v("p-actualCost"),
       netTerms: v("p-netTerms"), deposit: v("p-deposit"),
       moq: v("p-moq"), leadTime: v("p-leadTime"),
     },
@@ -901,7 +919,7 @@ function fillFormFields(record){
   set("f-product", record.product);
   set("f-notes", record.notes);
   const p = record.proc || {};
-  set("p-targetCost", p.targetCost); set("p-actualCost", p.actualCost);
+  set("p-actualCost", p.actualCost);
   set("p-netTerms", p.netTerms); set("p-deposit", p.deposit);
   set("p-moq", p.moq); set("p-leadTime", p.leadTime);
   const q = record.qc || {};
@@ -1098,7 +1116,7 @@ const COMPARE_ROWS = [
     const costs = (all||[]).map(x=>x.proc.actualCost?parseFloat(x.proc.actualCost):null).filter(c=>c!==null);
     const isCheapest = costs.length>1 && cost===Math.min(...costs);
     return `$${cost.toFixed(2)}` + (isCheapest ? ` <strong style="color:var(--green);">↓ Cheapest</strong>` : "")
-      + (e.proc.targetCost ? `<div class="hint">Target ${money(e.proc.targetCost)}${escapeHtml(costVarianceText(e.proc.targetCost, e.proc.actualCost))}</div>` : "");
+      + (!isCheapest && e.computed.cheapestCost ? `<div class="hint">${escapeHtml(costVsCheapestText(e.computed.cheapestCost, e.proc.actualCost).trim().replace(/^\(|\)$/g,""))}</div>` : "");
   }},
 ];
 function compareButtonLabel(n){
@@ -1322,7 +1340,7 @@ function autoSaveDraft(formSnapshot){
 }
 async function writeDraft(form){
   if(submitting) return;
-  const computed = computeScores(form);
+  const computed = scoreWithPeers(Object.assign({ id: currentDraftId }, form));
   const hadId = !!currentDraftId;
   const identity = await resolveDraftIdentity(form);
   if(!hadId && identity.status){
@@ -1357,9 +1375,10 @@ function wireNewView(editing){
     el.addEventListener("change", debouncedAutoSave);
   });
 
-  document.getElementById("btn-preview").addEventListener("click", ()=>{
+  document.getElementById("btn-preview").addEventListener("click", async ()=>{
+    await listEvaluations(); // latest quotes from other suppliers for the cost score
     const form = collectForm();
-    const computed = computeScores(form);
+    const computed = scoreWithPeers(Object.assign({ id: currentDraftId, status: "submitted" }, form));
     document.getElementById("preview-box").innerHTML = renderPreview(form, computed);
   });
 
@@ -1378,8 +1397,9 @@ function wireNewView(editing){
       if(form.supplier) autoSaveDraft(form);
       return;
     }
-    const computed = computeScores(form);
     btn.disabled = true; btn.textContent = "Submitting…";
+    await listEvaluations(); // latest quotes from other suppliers for the cost score
+    const computed = scoreWithPeers(Object.assign({ id: currentDraftId, status: "submitted" }, form));
     let identity;
     try{
       identity = await enqueueSave(async ()=>{

@@ -21,7 +21,7 @@ const fs = require("fs");
 
   // Submitting now requires every question answered: fill anything still blank.
   function fillRest(){
-    ["p-targetCost","p-actualCost"].forEach(id=>{
+    ["p-actualCost"].forEach(id=>{
       const cost = doc.getElementById(id);
       if(!cost.value){ cost.value = "5.00"; cost.dispatchEvent(new window.Event("input", { bubbles: true })); }
     });
