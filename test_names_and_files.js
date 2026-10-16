@@ -35,6 +35,7 @@ const fs = require("fs");
   // First evaluation: no names yet, so plain text boxes
   if (doc.getElementById("f-supplier").style.display === "none") fail("text box should show when there are no saved names");
   set("f-supplier", "Blue Mountain"); set("f-product", "Saffron Gummies");
+  set("f-supplierStatus", "existing"); set("f-productStatus", "new");
   await wait(1000);
 
   // Next form: dropdowns list saved names plus "+ Add new"
@@ -45,6 +46,9 @@ const fs = require("fs");
   if (pick.style.display === "none" || !optTexts.includes("Blue Mountain") || !optTexts.some(t=>t.includes("Add new"))) fail("supplier dropdown should list saved names");
   set("f-supplier-pick", "Blue Mountain");
   if (doc.getElementById("f-supplier").value !== "Blue Mountain") fail("choosing a name should fill the supplier");
+  console.log("Supplier type remembered for Blue Mountain:", doc.getElementById("f-supplierStatus").value);
+  if (doc.getElementById("f-supplierStatus").value !== "existing") fail("picking a known supplier should fill in its type");
+  set("f-supplierStatus", "");
   set("f-supplier-pick", "__new");
   if (doc.getElementById("f-supplier").style.display === "none") fail("'+ Add new' should show the text box");
   set("f-supplier", "Viva"); set("f-product-pick", "Saffron Gummies");

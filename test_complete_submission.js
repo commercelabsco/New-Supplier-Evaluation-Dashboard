@@ -49,9 +49,12 @@ const fs = require("fs");
   if (!doc.querySelectorAll(".missing").length) fail("missing fields should be highlighted");
 
   // Complete it: now it submits
-  set("p-actualCost", "5"); ["p-netTerms","p-deposit","p-moq","p-leadTime"].forEach(id=>set(id, "1"));
+  set("p-actualCost", "5"); set("f-productStatus", "existing");
+  set("f-supplierStatus", "new"); // new supplier: track-record questions become N/A automatically
+  const naCount = ["q-responsivenessResolution","q-productQuality","q-coaTurnaround"].filter(id=>doc.getElementById(id).value==="na").length;
+  console.log("Track-record questions set to N/A for a new supplier:", naCount);
+  if (naCount !== 3) fail("choosing New supplier should answer the track-record questions N/A"); ["p-netTerms","p-deposit","p-moq","p-leadTime"].forEach(id=>set(id, "1"));
   ["q-testingCapacity","q-labelReviewer"].forEach(id=>set(id, "1"));
-  ["q-responsivenessResolution","q-productQuality","q-coaTurnaround"].forEach(id=>set(id, "na"));
   doc.getElementById("btn-save").dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
   await new Promise(r => setTimeout(r, 400));
   const done = records().find(r=>r.supplier==="Partial Co");

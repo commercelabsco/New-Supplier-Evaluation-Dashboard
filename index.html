@@ -127,6 +127,9 @@
   .linkbtn{background:none;border:none;color:var(--accent);cursor:pointer;padding:0 4px;font-size:13px;}
   .linkbtn:hover{text-decoration:underline;}
   .name-pick{margin-bottom:8px;}
+  .tag{display:inline-block;padding:1px 7px;border-radius:10px;font-size:11px;font-weight:600;margin-left:6px;vertical-align:1px;white-space:nowrap;}
+  .tag.new{background:var(--gold-soft);color:var(--gold);}
+  .tag.existing{background:var(--accent-soft);color:var(--accent);}
   .activity-table .old{color:var(--ink-soft);text-decoration:line-through;}
   /* PDF exports always render in the light palette, whatever the viewer's theme. */
   .pdf-sheet{
@@ -301,6 +304,8 @@ function missingFields(form){
   const need = (val, id, label) => { if(val===""||val===null||val===undefined) miss.push({id, label}); };
   need(form.supplier, "f-supplier", "Supplier name");
   need(form.product, "f-product", "Product / spec");
+  need(form.supplierStatus, "f-supplierStatus", "Supplier type");
+  need(form.productStatus, "f-productStatus", "Product type");
   need(form.proc.actualCost, "p-actualCost", "Turnkey cost");
   need(form.proc.netTerms, "p-netTerms", "Balance net terms");
   need(form.proc.deposit, "p-deposit", "Deposit payment");
@@ -582,9 +587,20 @@ let lastActivity = null; // {evalId, by, key, entry} \u2014 the entry this sessi
 const ACTIVITY_MERGE_MS = 10*60*1000;
 const money = v => (v===""||v==null) ? "\u2014" : "$"+Number(v).toFixed(2);
 const answer = (list, v) => (v===""||v==null) ? "\u2014" : labelFor(list, v);
+// Whether we've worked with the supplier / sold the product before (labels only, not scored).
+const SUPPLIER_TYPES = { existing:"Existing supplier \u2014 we've ordered from them before", new:"New supplier \u2014 no orders yet" };
+const PRODUCT_TYPES  = { existing:"Existing product \u2014 already selling", new:"New product \u2014 not launched yet" };
+const typeLabel = (types, v) => v ? types[v].split(" \u2014")[0] : "Not set";
+function typeTag(v){ return v ? `<span class="tag ${v}">${v==="new"?"New":"Existing"}</span>` : ""; }
+function typeSelect(id, types, noun){
+  return `<select id="${id}" class="type-pick"><option value="">Select ${noun} type\u2026</option>${
+    Object.entries(types).map(([v,l])=>`<option value="${v}">${l}</option>`).join("")}</select>`;
+}
 const ACTIVITY_FIELDS = [
   ["Supplier", r=>r.supplier||"\u2014"],
   ["Product", r=>r.product||"\u2014"],
+  ["Supplier type", r=>r.supplierStatus ? typeLabel(SUPPLIER_TYPES, r.supplierStatus) : "\u2014"],
+  ["Product type", r=>r.productStatus ? typeLabel(PRODUCT_TYPES, r.productStatus) : "\u2014"],
   ["Turnkey cost", r=>money((r.proc||{}).actualCost)],
   ["Balance net terms", r=>answer(OPTS.netTerms, (r.proc||{}).netTerms)],
   ["Deposit payment", r=>answer(OPTS.deposit, (r.proc||{}).deposit)],
@@ -812,6 +828,8 @@ function detailRow(label, val){
 function renderDetailBreakdown(e){
   const p = e.proc||{}, q = e.qc||{};
   const procRows = [
+    detailRow("Supplier type", typeLabel(SUPPLIER_TYPES, e.supplierStatus)),
+    detailRow("Product type", typeLabel(PRODUCT_TYPES, e.productStatus)),
     detailRow("Product Cost (Turnkey)", p.actualCost ? money(p.actualCost)+"/unit"+costVsCheapestText((e.computed||{}).cheapestCost, p.actualCost) : "Not answered"),
     detailRow("Payment Terms — Balance net terms", labelFor(OPTS.netTerms, p.netTerms)),
     detailRow("Payment Terms — Deposit payment", labelFor(OPTS.deposit, p.deposit)),
@@ -1030,6 +1048,11 @@ function renderNew(editing){
       <div><label class="field">${fieldLabel("Supplier / Company Name")}</label><select id="f-supplier-pick" class="name-pick" style="display:none;"></select><input type="text" id="f-supplier" placeholder="Type the supplier name, e.g. Blue Mountain"></div>
       <div><label class="field">${fieldLabel("Product / Spec Being Quoted")}</label><select id="f-product-pick" class="name-pick" style="display:none;"></select><input type="text" id="f-product" placeholder="Type the product, e.g. Nusava Saffron Gummies"></div>
     </div>
+    <div class="grid2">
+      <div><label class="field">${fieldLabel("Supplier Type")}</label>${typeSelect("f-supplierStatus", SUPPLIER_TYPES, "supplier")}
+        <div class="hint">New supplier sets the track-record questions in Section B to N/A.</div></div>
+      <div><label class="field">${fieldLabel("Product Type")}</label>${typeSelect("f-productStatus", PRODUCT_TYPES, "product")}</div>
+    </div>
   </div>
 
   <div class="panel">
@@ -1085,6 +1108,8 @@ function collectForm(){
   return {
     supplier: v("f-supplier").trim(),
     product: v("f-product").trim(),
+    supplierStatus: v("f-supplierStatus"),
+    productStatus: v("f-productStatus"),
     notes: v("f-notes"),
     proc: {
       actualCost: v("p-actualCost"),
@@ -1099,6 +1124,7 @@ function fillFormFields(record){
   const set = (id, val) => { const el = document.getElementById(id); if(el) el.value = (val===undefined||val===null) ? "" : val; };
   set("f-supplier", record.supplier);
   set("f-product", record.product);
+  set("f-supplierStatus", record.supplierStatus); set("f-productStatus", record.productStatus);
   set("f-notes", record.notes);
   const p = record.proc || {};
   set("p-actualCost", p.actualCost);
@@ -1235,8 +1261,8 @@ async function renderOngoing(){
     const c = e.computed;
     return `<tr>
       <td class="num">${formatRefNumber(e.refNumber)}</td>
-      <td>${escapeHtml(e.supplier)}</td>
-      <td>${escapeHtml(e.product && e.product.trim() ? e.product : "(No product specified)")}</td>
+      <td>${escapeHtml(e.supplier)}${typeTag(e.supplierStatus)}</td>
+      <td>${escapeHtml(e.product && e.product.trim() ? e.product : "(No product specified)")}${typeTag(e.productStatus)}</td>
       <td class="completeness">QC ${Math.round(c.completenessQC*100)}% · Proc ${Math.round(c.completenessProc*100)}%</td>
       <td>${lastEditedCell(e)}</td>
       <td>
@@ -1282,6 +1308,8 @@ function wireOngoingView(){
 const COMPARE_ROWS = [
   {label:"Total Score", get:e=>`<strong class="num">${e.computed.totalScore.toFixed(1)} / 100</strong>`},
   {label:"Rating", get:e=>`<span class="badge ${ratingBadgeClass(e.computed.rating)}">${e.computed.rating}</span>`},
+  {label:"Supplier Type", get:e=>escapeHtml(typeLabel(SUPPLIER_TYPES, e.supplierStatus))},
+  {label:"Product Type", get:e=>escapeHtml(typeLabel(PRODUCT_TYPES, e.productStatus))},
   {label:"Status", get:e=>e.status==="submitted"?'<span class="badge good">Submitted</span>':'<span class="badge acceptable">Draft</span>'},
   {label:"QC Subtotal", get:e=>`<span class="num">${e.computed.qcTotal.toFixed(1)} / 30</span>`},
   {label:"Onboarding Score", get:e=>e.computed.onboardingScore!==null ? `<span class="num">${e.computed.onboardingScore.toFixed(0)}%</span>` : "No data"},
@@ -1367,7 +1395,7 @@ async function renderByProduct(){
       return `<tr>
         <td style="text-align:center;">${pick}</td>
         <td class="num">${formatRefNumber(e.refNumber)}</td>
-        <td>${escapeHtml(e.supplier)}<button class="linkbtn" data-rename-supplier="${escapeHtml(e.supplier)}" title="Rename this supplier on every evaluation">\u270e</button></td>
+        <td>${escapeHtml(e.supplier)}${typeTag(e.supplierStatus)}<button class="linkbtn" data-rename-supplier="${escapeHtml(e.supplier)}" title="Rename this supplier on every evaluation">\u270e</button></td>
         <td>${statusBadge}</td>
         <td class="num">${c.qcTotal.toFixed(1)}</td>
         <td class="num">${c.procTotal.toFixed(1)}</td>
@@ -1400,7 +1428,7 @@ async function renderByProduct(){
     }
     return `<div class="panel">
       <div style="display:flex;justify-content:space-between;align-items:center;">
-        <h2 style="margin:0;">${escapeHtml(g.label)}</h2>
+        <h2 style="margin:0;">${escapeHtml(g.label)}${typeTag((g.items.find(e=>e.productStatus)||{}).productStatus)}</h2>
         <div style="display:flex;gap:8px;">
           <button class="btn secondary" data-rename-product="${idx}" style="padding:5px 12px;font-size:13px;">Rename</button>
           <button class="btn secondary" data-add-supplier="${idx}" style="padding:5px 12px;font-size:13px;">+ Add Supplier</button>
@@ -1535,7 +1563,7 @@ async function writeDraft(form){
   }
   let movedBack = false;
   if(currentDraftStatus==="submitted" && missingFields(form).length){ currentDraftStatus = "draft"; movedBack = true; }
-  const record = { id: identity.id, refNumber: identity.refNumber, formVersion: FORM_VERSION, supplier: form.supplier, product: form.product,
+  const record = { id: identity.id, refNumber: identity.refNumber, formVersion: FORM_VERSION, supplier: form.supplier, product: form.product, supplierStatus: form.supplierStatus, productStatus: form.productStatus,
                     notes: form.notes, proc: form.proc, qc: form.qc, computed, status: currentDraftStatus||"draft",
                     updatedAt: Date.now() };
   const indicator = document.getElementById("autosave-status");
@@ -1561,6 +1589,30 @@ function wireNewView(editing){
     fillNamePicker("f-product", uniqueNames(evals.map(e=>e.product)), "product");
   };
   wireNamePicker("f-supplier"); wireNamePicker("f-product");
+
+  // Picking a supplier/product that's been labelled before fills in its type.
+  const rememberType = (nameId, typeId, field) => {
+    document.getElementById(nameId).addEventListener("input", ()=>{
+      const typeSel = document.getElementById(typeId);
+      if(typeSel.value) return;
+      const name = document.getElementById(nameId).value.trim().toLowerCase();
+      const prev = lastEvalCache.filter(e=>(e[nameId==="f-supplier"?"supplier":"product"]||"").trim().toLowerCase()===name && e[field])
+                                .sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0))[0];
+      if(prev){ typeSel.value = prev[field]; typeSel.dispatchEvent(new Event("change", { bubbles:true })); }
+    });
+  };
+  rememberType("f-supplier", "f-supplierStatus", "supplierStatus");
+  rememberType("f-product", "f-productStatus", "productStatus");
+  // A new supplier has no order history: answer the track-record questions N/A.
+  document.getElementById("f-supplierStatus").addEventListener("change", ev=>{
+    if(ev.target.value!=="new") return;
+    let n = 0;
+    for(const k of PERFORMANCE_QC_KEYS){
+      const el = document.getElementById("q-"+k);
+      if(el && el.value===""){ el.value = NA; el.dispatchEvent(new Event("change", { bubbles:true })); n++; }
+    }
+    if(n) showToast(`New supplier \u2014 ${n} track-record question${n===1?"":"s"} set to N/A.`);
+  });
   fillPickers(lastEvalCache);
   listEvaluations().then(evals=>{ if(document.getElementById("f-supplier-pick")) fillPickers(evals); });
 
@@ -1614,7 +1666,7 @@ function wireNewView(editing){
       identity = await enqueueSave(async ()=>{
         submitting = true; // any autosave queued behind this becomes a no-op
         const id = await resolveDraftIdentity(form);
-        const record = { id: id.id, refNumber: id.refNumber, formVersion: FORM_VERSION, supplier: form.supplier, product: form.product,
+        const record = { id: id.id, refNumber: id.refNumber, formVersion: FORM_VERSION, supplier: form.supplier, product: form.product, supplierStatus: form.supplierStatus, productStatus: form.productStatus,
                           notes: form.notes, proc: form.proc, qc: form.qc, computed, status: "submitted",
                           updatedAt: Date.now() };
         await saveEvaluation(record);
