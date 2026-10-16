@@ -25,7 +25,7 @@ const fs = require("fs");
       const cost = doc.getElementById(id);
       if(!cost.value){ cost.value = "5.00"; cost.dispatchEvent(new window.Event("input", { bubbles: true })); }
     });
-    doc.querySelectorAll("#main select").forEach(sel=>{
+    doc.querySelectorAll("#main select:not(.name-pick)").forEach(sel=>{
       if(sel.value===""){ sel.value = "0"; sel.dispatchEvent(new window.Event("change", { bubbles: true })); }
     });
   }

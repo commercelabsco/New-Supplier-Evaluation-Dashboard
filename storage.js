@@ -51,6 +51,22 @@ window.initStorage = async function(){
       data.forEach(r=>cache.set(r.key, { value: r.value, at: now }));
       return { keys: data.map(r=>r.key) };
     },
+    // Attachments: private "attachments" bucket in Supabase Storage (see SETUP.md).
+    files: {
+      async upload(path, file){
+        const { error } = await client.storage.from("attachments").upload(path, file, { contentType: file.type || undefined });
+        if(error) throw new Error(error.message);
+      },
+      async signedUrl(path, downloadName){
+        const { data, error } = await client.storage.from("attachments").createSignedUrl(path, 3600, downloadName ? { download: downloadName } : undefined);
+        if(error) throw new Error(error.message);
+        return data.signedUrl;
+      },
+      async remove(path){
+        const { error } = await client.storage.from("attachments").remove([path]);
+        if(error) throw new Error(error.message);
+      },
+    },
     // Atomic counter (see SETUP.md) so two people submitting at once never share a ref number.
     async increment(key){
       const { data, error } = await client.rpc("kv_increment", { counter_key: key });

@@ -71,7 +71,29 @@ const SUPABASE_ANON_KEY = "eyJ...";
 The anon key can safely be public. The row-level security policy above is what
 protects the data. Commit, push, and GitHub Pages will redeploy.
 
-## 4. Move existing data (optional)
+## 4. Attachments (file storage)
 
-If you have a backup from **Export All (.json)**, sign in on the live site and
-use **Import .json** to load it into the database.
+Run this once in **SQL Editor** to create the private file storage that the
+**Attachments** section and **Files** buttons use. Only signed-in
+@commercelabs.co accounts can upload, open or delete files, and each file can
+be up to 50 MB.
+
+```sql
+insert into storage.buckets (id, name, public, file_size_limit)
+values ('attachments', 'attachments', false, 52428800)
+on conflict (id) do nothing;
+
+create policy "commercelabs attachments read" on storage.objects
+  for select to authenticated
+  using (bucket_id = 'attachments' and (auth.jwt() ->> 'email') like '%@commercelabs.co');
+
+create policy "commercelabs attachments upload" on storage.objects
+  for insert to authenticated
+  with check (bucket_id = 'attachments' and (auth.jwt() ->> 'email') like '%@commercelabs.co');
+
+create policy "commercelabs attachments delete" on storage.objects
+  for delete to authenticated
+  using (bucket_id = 'attachments' and (auth.jwt() ->> 'email') like '%@commercelabs.co');
+```
+
+The free Supabase plan includes 1 GB of file storage.

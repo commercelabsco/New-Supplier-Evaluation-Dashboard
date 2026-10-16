@@ -124,6 +124,9 @@
   .req{color:var(--red);margin-left:2px;}
   .wt{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--accent);margin-left:6px;white-space:nowrap;}
   .activity-table td,.activity-table th{font-size:12.5px;padding:6px 8px;}
+  .linkbtn{background:none;border:none;color:var(--accent);cursor:pointer;padding:0 4px;font-size:13px;}
+  .linkbtn:hover{text-decoration:underline;}
+  .name-pick{margin-bottom:8px;}
   .activity-table .old{color:var(--ink-soft);text-decoration:line-through;}
   /* PDF exports always render in the light palette, whatever the viewer's theme. */
   .pdf-sheet{
@@ -409,8 +412,165 @@ async function deleteEvaluation(id){
     await window.storage.delete(id.startsWith?.("evaluation:")?id:"evaluation:"+id, true);
     const keys = await window.storage.list("activity:"+id+":", true);
     for(const k of (keys && keys.keys)||[]) await window.storage.delete(k, true);
+    if(filesSupported()) for(const a of await listAttachments(id)) await removeAttachment(a, false);
   }
   catch(e){ console.error("deleteEvaluation failed:", e); }
+}
+
+/* ---- Attachments: files live in the private Supabase "attachments" bucket;
+   a small "attachment:<evaluation id>:<id>" record per file keeps its name,
+   size and who uploaded it. ---- */
+const MAX_FILE_MB = 50;
+let attachCounts = {};
+function filesSupported(){ return storageMode!=="memory" && !!(window.storage && window.storage.files); }
+async function listAttachments(evalId){
+  const keys = await window.storage.list("attachment:"+evalId+":", true);
+  const out = [];
+  for(const k of (keys && keys.keys)||[]){
+    try{ const res = await window.storage.get(k, true); if(res && res.value) out.push(Object.assign(JSON.parse(res.value), { key:k })); }catch(e){}
+  }
+  return out.sort((a,b)=>a.uploadedAt-b.uploadedAt);
+}
+async function attachmentCounts(){
+  if(!filesSupported()) return {};
+  const counts = {};
+  try{
+    const keys = await window.storage.list("attachment:", true);
+    for(const k of (keys && keys.keys)||[]){ const id = k.split(":")[1]; counts[id] = (counts[id]||0)+1; }
+  }catch(e){}
+  return counts;
+}
+async function uploadAttachment(evalId, file){
+  const id = Date.now()+"-"+Math.random().toString(36).slice(2,6);
+  const path = evalId+"/"+id+"-"+file.name.replace(/[^\w.-]+/g,"_");
+  await window.storage.files.upload(path, file);
+  const meta = { id, evalId, name:file.name, path, size:file.size, type:file.type||"",
+                 uploadedBy: currentUserName()||"Unknown", uploadedAt: Date.now() };
+  await window.storage.set("attachment:"+evalId+":"+id, JSON.stringify(meta), true);
+  await logEvent(evalId, "Attached file", [{ field:"Attachment", from:"\u2014", to:file.name }]);
+}
+async function removeAttachment(a, log=true){
+  try{ await window.storage.files.remove(a.path); }catch(e){ console.warn("file remove failed:", e); }
+  await window.storage.delete(a.key, true);
+  if(log) await logEvent(a.evalId, "Removed file", [{ field:"Attachment", from:a.name, to:"\u2014" }]);
+}
+function formatBytes(n){ return n>=1048576 ? (n/1048576).toFixed(1)+" MB" : Math.max(1, Math.round(n/1024))+" KB"; }
+function renderAttachmentList(list){
+  if(!list.length) return '<span class="hint">No files yet.</span>';
+  return `<table class="activity-table"><tr><th>File</th><th>Size</th><th>Uploaded by</th><th>When</th><th></th></tr>${
+    list.map(a=>`<tr><td>${escapeHtml(a.name)}</td><td>${formatBytes(a.size)}</td><td>${escapeHtml(a.uploadedBy)}</td><td>${formatDateTime(a.uploadedAt)}</td>
+      <td style="white-space:nowrap;"><button class="btn secondary" data-file-open="${escapeHtml(a.key)}" style="padding:3px 9px;font-size:12px;">Open</button>
+      <button class="btn secondary" data-file-download="${escapeHtml(a.key)}" style="padding:3px 9px;font-size:12px;">Download</button>
+      <button class="btn danger" data-file-del="${escapeHtml(a.key)}" style="padding:3px 9px;font-size:12px;">Delete</button></td></tr>`).join("")
+  }</table>`;
+}
+// getEvalId(create): the evaluation the files belong to; with create=true a new
+// form is saved first so it has one.
+async function mountAttachments(box, getEvalId){
+  if(!filesSupported()){ box.innerHTML = '<span class="hint">Attachments are available on the live dashboard once you\'re signed in.</span>'; return; }
+  box.innerHTML = `<div class="attach-list"><span class="hint">Loading files\u2026</span></div>
+    <div class="actions-row" style="margin-top:10px;align-items:center;flex-wrap:wrap;">
+      <label class="btn secondary" style="display:inline-block;">+ Upload files<input type="file" multiple style="display:none;"></label>
+      <span class="hint">Quotes, COAs, certificates, PDFs, images, Word/Excel \u2014 up to ${MAX_FILE_MB} MB each</span>
+    </div>`;
+  const listEl = box.querySelector(".attach-list"), input = box.querySelector("input[type=file]");
+  let current = [];
+  const refresh = async ()=>{
+    const id = await getEvalId(false);
+    if(!id){ listEl.innerHTML = '<span class="hint">No files yet.</span>'; return; }
+    try{ current = await listAttachments(id); listEl.innerHTML = renderAttachmentList(current); }
+    catch(e){ listEl.innerHTML = '<span class="hint">Couldn\'t load files: '+escapeHtml(e.message)+'</span>'; }
+  };
+  const find = key => current.find(a=>a.key===key);
+  listEl.addEventListener("click", async ev=>{
+    const btn = ev.target.closest("button"); if(!btn) return;
+    const a = find(btn.dataset.fileOpen || btn.dataset.fileDownload || btn.dataset.fileDel); if(!a) return;
+    if(btn.dataset.fileDel){
+      if(!confirmClick(btn)) return;
+      await removeAttachment(a); showToast(`Removed ${a.name}.`); refresh(); return;
+    }
+    const tab = window.open("", "_blank"); // opened during the click so popup blockers allow it
+    try{
+      const url = await window.storage.files.signedUrl(a.path, btn.dataset.fileDownload ? a.name : null);
+      if(tab) tab.location = url; else location.href = url;
+    }catch(e){ if(tab) tab.close(); showToast("Couldn't open the file: "+e.message); }
+  });
+  input.addEventListener("change", async ()=>{
+    const files = [...input.files]; input.value = "";
+    if(!files.length) return;
+    const id = await getEvalId(true); if(!id) return;
+    let done = 0;
+    for(const f of files){
+      if(f.size > MAX_FILE_MB*1048576){ showToast(`${f.name} is over ${MAX_FILE_MB} MB and wasn't uploaded.`); continue; }
+      showToast(`Uploading ${f.name}\u2026`);
+      try{ await uploadAttachment(id, f); done++; }
+      catch(e){
+        showToast(/bucket not found/i.test(e.message) ? "File storage isn't set up yet \u2014 see SETUP.md (Attachments)." : `Couldn't upload ${f.name}: ${e.message}`);
+      }
+    }
+    if(done) showToast(`Uploaded ${done} file${done===1?"":"s"}.`);
+    refresh();
+  });
+  await refresh();
+}
+function filesButton(id){
+  const n = attachCounts[id]||0;
+  return `<button class="btn secondary" data-files="${id}" style="padding:4px 10px;font-size:12px;">Files${n?` (${n})`:""}</button>`;
+}
+function filesRowMarkup(id, colspan){
+  return `<tr class="detail-row" data-files-for="${id}" style="display:none;"><td colspan="${colspan}" style="background:var(--row);"><div style="font-weight:700;margin-bottom:6px;">Attachments</div><div class="attach-box"></div></td></tr>`;
+}
+
+/* ---- Supplier / product names: dropdown pickers and renaming ---- */
+function uniqueNames(values){
+  const byKey = {};
+  for(const v of values){ const t = (v||"").trim(); if(t && !byKey[t.toLowerCase()]) byKey[t.toLowerCase()] = t; }
+  return Object.values(byKey).sort((a,b)=>a.localeCompare(b));
+}
+function fillNamePicker(field, names, noun){
+  const sel = document.getElementById(field+"-pick"), input = document.getElementById(field);
+  if(!sel || !input) return;
+  if(!names.length){ sel.style.display = "none"; input.style.display = ""; return; }
+  const cur = input.value.trim();
+  const match = names.find(n=>n.toLowerCase()===cur.toLowerCase());
+  sel.innerHTML = `<option value="">Select a ${noun}\u2026</option>` + names.map(n=>`<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join("")
+    + `<option value="__new">+ Add new ${noun}</option>`;
+  sel.style.display = "";
+  if(match){ sel.value = match; input.value = match; input.style.display = "none"; }
+  else if(cur){ sel.value = "__new"; input.style.display = ""; }
+  else { sel.value = ""; input.style.display = "none"; }
+}
+function wireNamePicker(field){
+  const sel = document.getElementById(field+"-pick"), input = document.getElementById(field);
+  sel.addEventListener("change", ()=>{
+    if(sel.selectedIndex<0) return;
+    if(sel.value==="__new"){ input.value = ""; input.style.display = ""; input.focus(); }
+    else { input.value = sel.value; input.style.display = "none"; }
+    input.dispatchEvent(new Event("input", { bubbles:true }));
+  });
+}
+function askText(title, hint, value){
+  return new Promise(resolve=>{
+    const wrap = document.createElement("div");
+    wrap.style.cssText = "position:fixed;inset:0;background:rgba(10,26,34,.55);display:flex;align-items:center;justify-content:center;z-index:1001;padding:16px;";
+    wrap.innerHTML = `<form class="panel" style="max-width:420px;width:100%;margin:0;">
+        <h2 style="margin-bottom:6px;">${escapeHtml(title)}</h2><p class="hint" style="margin:0 0 12px;">${escapeHtml(hint)}</p>
+        <input type="text" required style="margin-bottom:14px;">
+        <div class="actions-row" style="margin:0;"><button class="btn" type="submit">Save</button><button class="btn secondary" type="button" data-cancel>Cancel</button></div>
+      </form>`;
+    document.body.appendChild(wrap);
+    const input = wrap.querySelector("input"); input.value = value||""; input.focus(); input.select();
+    const done = v => { wrap.remove(); resolve(v); };
+    wrap.querySelector("[data-cancel]").addEventListener("click", ()=>done(null));
+    wrap.querySelector("form").addEventListener("submit", ev=>{ ev.preventDefault(); const v = input.value.trim(); if(v) done(v); });
+  });
+}
+// Renames a supplier or product on every evaluation that uses it (case-insensitive).
+async function renameAcross(field, oldName, newName){
+  const key = (oldName||"").trim().toLowerCase();
+  const hits = (await listEvaluations()).filter(e=>(e[field]||"").trim().toLowerCase()===key);
+  for(const e of hits) await saveEvaluation(Object.assign({}, e, { [field]: newName, updatedAt: Date.now() }));
+  return hits.length;
 }
 
 /* ---- Activity log: who changed what, and when ----
@@ -468,6 +628,12 @@ async function logActivity(oldRec, rec, who){
   const key = activityKey(rec.id, now+"-"+Math.random().toString(36).slice(2,6));
   await writeActivity(rec.id, key, entry);
   lastActivity = { evalId:rec.id, by, key, entry };
+}
+async function logEvent(evalId, action, changes){
+  const now = Date.now();
+  const entry = { evalId, at:now, updatedAt:now, by: currentUserName()||"Unknown", action, changes };
+  try{ await writeActivity(evalId, activityKey(evalId, now+"-"+Math.random().toString(36).slice(2,6)), entry); }
+  catch(e){ console.error("activity log failed:", e); }
 }
 async function logActivitySafe(oldRec, rec, who){
   try{ await logActivity(oldRec, rec, who); }catch(e){ console.error("activity log failed:", e); }
@@ -694,6 +860,16 @@ function wireDetailAndExportButtons(recordLookup){
       if(rec) exportOne(rec); else showToast("Couldn't find that evaluation.");
     });
   });
+  document.querySelectorAll("[data-files]").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const id = btn.getAttribute("data-files");
+      const row = document.querySelector(`[data-files-for="${CSS.escape(id)}"]`);
+      if(!row) return;
+      if(row.style.display==="table-row"){ row.style.display="none"; return; }
+      row.style.display = "table-row";
+      mountAttachments(row.querySelector(".attach-box"), async ()=>id);
+    });
+  });
   document.querySelectorAll("[data-activity]").forEach(btn=>{
     btn.addEventListener("click", async ()=>{
       const id = btn.getAttribute("data-activity");
@@ -851,8 +1027,8 @@ function renderNew(editing){
   <div class="panel">
     <h2>Supplier Details</h2>
     <div class="grid2">
-      <div><label class="field">${fieldLabel("Supplier / Company Name")}</label><input type="text" id="f-supplier" placeholder="e.g. Blue Mountain"></div>
-      <div><label class="field">${fieldLabel("Product / Spec Being Quoted")}</label><input type="text" id="f-product" placeholder="e.g. Nusava Saffron Gummies"></div>
+      <div><label class="field">${fieldLabel("Supplier / Company Name")}</label><select id="f-supplier-pick" class="name-pick" style="display:none;"></select><input type="text" id="f-supplier" placeholder="Type the supplier name, e.g. Blue Mountain"></div>
+      <div><label class="field">${fieldLabel("Product / Spec Being Quoted")}</label><select id="f-product-pick" class="name-pick" style="display:none;"></select><input type="text" id="f-product" placeholder="Type the product, e.g. Nusava Saffron Gummies"></div>
     </div>
   </div>
 
@@ -886,7 +1062,13 @@ function renderNew(editing){
 
   <div class="panel">
     <h2>Notes</h2>
-    <textarea id="f-notes" rows="3" placeholder="Any additional context (attachments referenced, follow-ups needed, etc.)"></textarea>
+    <textarea id="f-notes" rows="3" placeholder="Any additional context (follow-ups needed, etc.)"></textarea>
+  </div>
+
+  <div class="panel">
+    <h2>Attachments</h2>
+    <p class="hint" style="margin:0 0 10px;">Upload quotes, COAs, certificates and other documents for this evaluation.</p>
+    <div id="new-attachments"></div>
   </div>
 
   <div class="actions-row">
@@ -1041,6 +1223,7 @@ function wireHistoryView(){
 async function renderOngoing(){
   const evals = await listEvaluations();
   const drafts = evals.filter(e=>e.status!=="submitted").sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));
+  attachCounts = await attachmentCounts();
   lastOngoingList = drafts;
   const banner = storageBanner();
   if(!drafts.length){
@@ -1058,10 +1241,10 @@ async function renderOngoing(){
       <td>${lastEditedCell(e)}</td>
       <td>
         <button class="btn secondary" data-resume="${e.id}" style="padding:4px 10px;font-size:12px;">Resume</button>
-        ${detailToggleButton(e.id)} ${activityButton(e.id)} ${saveButton(e.id)}
+        ${detailToggleButton(e.id)} ${activityButton(e.id)} ${filesButton(e.id)} ${saveButton(e.id)}
         <button class="btn danger" data-del="${e.id}" style="padding:4px 10px;font-size:12px;">Delete</button>
       </td>
-    </tr>${detailRowMarkup(e.id, colspan, e)}${activityRowMarkup(e.id, colspan)}`;
+    </tr>${detailRowMarkup(e.id, colspan, e)}${activityRowMarkup(e.id, colspan)}${filesRowMarkup(e.id, colspan)}`;
   }).join("");
   return `
   <h1>Ongoing</h1>
@@ -1153,6 +1336,7 @@ function renderCompareGrid(chosen){
 
 async function renderByProduct(){
   const evals = (await listEvaluations()).filter(e=>e.status==="submitted"); // drafts live in Ongoing
+  attachCounts = await attachmentCounts();
   lastByProductList = evals;
   groupLabelsByIdx = {};
   compareGroupsByIdx = {};
@@ -1183,7 +1367,7 @@ async function renderByProduct(){
       return `<tr>
         <td style="text-align:center;">${pick}</td>
         <td class="num">${formatRefNumber(e.refNumber)}</td>
-        <td>${escapeHtml(e.supplier)}</td>
+        <td>${escapeHtml(e.supplier)}<button class="linkbtn" data-rename-supplier="${escapeHtml(e.supplier)}" title="Rename this supplier on every evaluation">\u270e</button></td>
         <td>${statusBadge}</td>
         <td class="num">${c.qcTotal.toFixed(1)}</td>
         <td class="num">${c.procTotal.toFixed(1)}</td>
@@ -1191,9 +1375,9 @@ async function renderByProduct(){
         <td><span class="badge ${ratingBadgeClass(c.rating)}">${c.rating}</span></td>
         <td class="completeness">QC ${Math.round(c.completenessQC*100)}% · Proc ${Math.round(c.completenessProc*100)}%</td>
         <td>${lastEditedCell(e)}</td>
-        <td>${editButton(e.id)} ${detailToggleButton(e.id)} ${activityButton(e.id)} ${saveButton(e.id)}
+        <td>${editButton(e.id)} ${detailToggleButton(e.id)} ${activityButton(e.id)} ${filesButton(e.id)} ${saveButton(e.id)}
             <button class="btn danger" data-del="${e.id}" style="padding:4px 10px;font-size:12px;">Delete</button></td>
-      </tr>${detailRowMarkup(e.id, colspan, e)}${activityRowMarkup(e.id, colspan)}`;
+      </tr>${detailRowMarkup(e.id, colspan, e)}${activityRowMarkup(e.id, colspan)}${filesRowMarkup(e.id, colspan)}`;
     }).join("");
     const submitted = g.items.filter(e=>e.status==="submitted");
     let compareBlock = "";
@@ -1217,7 +1401,10 @@ async function renderByProduct(){
     return `<div class="panel">
       <div style="display:flex;justify-content:space-between;align-items:center;">
         <h2 style="margin:0;">${escapeHtml(g.label)}</h2>
-        <button class="btn secondary" data-add-supplier="${idx}" style="padding:5px 12px;font-size:13px;">+ Add Supplier</button>
+        <div style="display:flex;gap:8px;">
+          <button class="btn secondary" data-rename-product="${idx}" style="padding:5px 12px;font-size:13px;">Rename</button>
+          <button class="btn secondary" data-add-supplier="${idx}" style="padding:5px 12px;font-size:13px;">+ Add Supplier</button>
+        </div>
       </div>
       <div class="table-wrap"><table>
         <tr><th style="text-align:center;">Compare</th><th>Ref #</th><th>Supplier</th><th>Status</th><th>QC</th><th>Proc.</th><th>Total</th><th>Rating</th><th>Completeness</th><th>Last edited</th><th></th></tr>
@@ -1368,6 +1555,24 @@ function wireNewView(editing){
   currentDraftRefNumber = (editing && editing.refNumber) ? editing.refNumber : null;
   if(editing){ fillFormFields(editing); }
 
+  // Supplier / product dropdowns list names already used, plus "+ Add new".
+  const fillPickers = evals => {
+    fillNamePicker("f-supplier", uniqueNames(evals.map(e=>e.supplier)), "supplier");
+    fillNamePicker("f-product", uniqueNames(evals.map(e=>e.product)), "product");
+  };
+  wireNamePicker("f-supplier"); wireNamePicker("f-product");
+  fillPickers(lastEvalCache);
+  listEvaluations().then(evals=>{ if(document.getElementById("f-supplier-pick")) fillPickers(evals); });
+
+  mountAttachments(document.getElementById("new-attachments"), async create=>{
+    if(currentDraftId || !create) return currentDraftId;
+    const form = collectForm();
+    if(!form.supplier){ showToast("Choose the supplier first, then attach files."); return null; }
+    clearTimeout(autoSaveTimer); autoSaveTimer = null;
+    await autoSaveDraft(form); // saves the draft so the files have an evaluation to belong to
+    return currentDraftId;
+  });
+
   document.querySelectorAll("#main input, #main select, #main textarea").forEach(el=>{
     el.addEventListener("input", ()=>{ if(el.value!=="") el.classList.remove("missing"); });
     el.addEventListener("change", ()=>{ if(el.value!=="") el.classList.remove("missing"); });
@@ -1389,7 +1594,11 @@ function wireNewView(editing){
     document.querySelectorAll("#main .missing").forEach(el=>el.classList.remove("missing"));
     const missing = missingFields(form);
     if(missing.length){
-      missing.forEach(m=>{ const el = document.getElementById(m.id); if(el) el.classList.add("missing"); });
+      missing.forEach(m=>{
+        const el = document.getElementById(m.id), pick = document.getElementById(m.id+"-pick");
+        const target = el && el.style.display==="none" && pick ? pick : el; // hidden text box -> outline its dropdown
+        if(target) target.classList.add("missing");
+      });
       const first = document.getElementById(missing[0].id);
       if(first && first.scrollIntoView){ first.scrollIntoView({behavior:"smooth", block:"center"}); first.focus({preventScroll:true}); }
       const names = missing.slice(0,4).map(m=>m.label).join(", ") + (missing.length>4 ? ` and ${missing.length-4} more` : "");
@@ -1508,6 +1717,27 @@ function wireByProductView(){
       const idx = btn.getAttribute("data-add-supplier");
       const label = groupLabelsByIdx[idx];
       startNewForProduct(label && label!=="(No product specified)" ? label : "");
+    });
+  });
+  document.querySelectorAll("[data-rename-product]").forEach(btn=>{
+    btn.addEventListener("click", async ()=>{
+      const label = groupLabelsByIdx[btn.getAttribute("data-rename-product")];
+      const old = label==="(No product specified)" ? "" : label;
+      const name = await askText("Rename product", "Updates every evaluation for this product. Use an existing product's name to merge them.", old);
+      if(!name || name===old) return;
+      const n = await renameAcross("product", old, name);
+      showToast(`Renamed to "${name}" on ${n} evaluation${n===1?"":"s"}.`);
+      render();
+    });
+  });
+  document.querySelectorAll("[data-rename-supplier]").forEach(btn=>{
+    btn.addEventListener("click", async ()=>{
+      const old = btn.getAttribute("data-rename-supplier");
+      const name = await askText("Rename supplier", "Updates this supplier on every evaluation, across all products.", old);
+      if(!name || name===old) return;
+      const n = await renameAcross("supplier", old, name);
+      showToast(`Renamed to "${name}" on ${n} evaluation${n===1?"":"s"}.`);
+      render();
     });
   });
   wireExportImport();
