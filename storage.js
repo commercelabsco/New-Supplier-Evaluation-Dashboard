@@ -8,8 +8,11 @@
    URL and anon (public) key. Until they're filled in, window.storage is
    left undefined and the dashboard falls back to in-memory mode.
    ============================================================ */
-const SUPABASE_URL = "https://abqqovogbmpkodubkrdu.supabase.co";
-const SUPABASE_ANON_KEY = "sb_publishable_W5oJ15kbMcWqPmwIEa8E4A_PaZ3FaKR"; // Settings -> API Keys -> Publishable key (safe to be public)
+// PROD branch: self-hosted Supabase on Coolify (main stays on Supabase cloud).
+// Fill these in from the Coolify Supabase service (SERVICE_FQDN / ANON_KEY env vars).
+// Keep this file as-is when merging main into prod.
+const SUPABASE_URL = "YOUR_COOLIFY_SUPABASE_URL"; // e.g. https://supabase.commercelabs.co
+const SUPABASE_ANON_KEY = "YOUR_COOLIFY_ANON_KEY"; // anon key (safe to be public)
 const ALLOWED_EMAIL_DOMAIN = "commercelabs.co";
 
 window.initStorage = async function(){
