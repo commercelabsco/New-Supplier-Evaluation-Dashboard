@@ -11,7 +11,7 @@
 // PROD branch: self-hosted Supabase on Coolify (main stays on Supabase cloud).
 // Fill these in from the Coolify Supabase service (SERVICE_FQDN / ANON_KEY env vars).
 // Keep this file as-is when merging main into prod.
-const SUPABASE_URL = "http://supabasekong-cqf5e6gcbvwaemxyd0ucfmnu.54.235.231.96.sslip.io"; // TODO: switch to an https domain
+const SUPABASE_URL = "https://supa.commercelabs.co";
 const SUPABASE_ANON_KEY = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJzdXBhYmFzZSIsImlhdCI6MTc5NDgwNzk2MCwiZXhwIjo0OTUwNDgxNTYwLCJyb2xlIjoiYW5vbiJ9.ZjTj7tQEb8fKgFarVPNZ798PfsXsm3onu5vhfazU6jY"; // anon key (safe to be public)
 const ALLOWED_EMAIL_DOMAIN = "commercelabs.co";
 
