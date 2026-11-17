@@ -43,6 +43,8 @@ $$;
 -- Give signed-in users access (needed when "Automatically expose new tables" is off).
 grant select, insert, update, delete on public.kv to authenticated;
 grant execute on function public.kv_increment(text) to authenticated;
+-- Lets admin scripts (e.g. scripts/migrate-to-coolify.mjs) using the service key read/write.
+grant select, insert, update, delete on public.kv to service_role;
 
 notify pgrst, 'reload schema';
 ```
